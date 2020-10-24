@@ -1,23 +1,37 @@
 #include "AliasAnalysis.h"
+#include "AliasGraph/AliasGraph.h"
+#include "AliasToken/Alias.h"
 #include "AliasToken/AliasToken.h"
+#include "iostream"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
 
 using namespace llvm;
-using namespace AliasUtil;
 
 bool AliasAnalysisPass::runOnModule(Module& M) {
-    bool converged = false;
-    AliasTokens AT;
+    AliasUtil::AliasTokens AT;
+    AliasGraphUtil::AliasGraph<AliasUtil::Alias> AG;
     for (Function& F : M.functions()) {
         for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I) {
-            errs() << *I << "\n";
-            // TODO: Implementation
+            // Extract alias tokens from the instruction
+            auto Aliases = AT.extractAliasToken(&*I);
+            // Find the relative redirection between lhs and rhs
+            // example for a = &b:(1, 0)
+            auto Redirections = AT.extractStatementType(&*I);
+            if (Aliases.size() == 2) {
+                // Default behavior is copy ie (1, 1)
+                // for heap address in RHS make sure it is (x, 0)
+                if (Aliases[1]->isMem()) Redirections.second = 0;
+                AG.insert(Aliases[0], Aliases[1], Redirections.first,
+                          Redirections.second);
+            }
         }
     }
+    std::cout << AG;
     return false;
 }
 
 char AliasAnalysisPass::ID = 0;
-static RegisterPass<AliasAnalysisPass> X("aa-basic", "Basic implementation of alias analysis in LLVM", true, true);
+static RegisterPass<AliasAnalysisPass> X(
+    "aa-basic", "Basic implementation of alias analysis in LLVM", true, true);
