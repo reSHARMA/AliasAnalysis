@@ -18,6 +18,18 @@ bool AliasAnalysisPass::runOnModule(Module& M) {
         for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I) {
             // Extract alias tokens from the instruction
             auto Aliases = AT.extractAliasToken(&*I);
+            // Handle special cases:
+            // Handle GEP instructions
+            if (GetElementPtrInst* Inst = dyn_cast<GetElementPtrInst>(&*I)) {
+                for(auto A : AG.getPointee(Aliases[1])){
+                    AliasUtil::Alias * FieldVal = new AliasUtil::Alias(A);
+                    FieldVal -> setIndex(Inst);
+                    FieldVal = AT.getAliasToken(FieldVal);
+                    AG.insert(Aliases[0], FieldVal, 1, 0);
+                }
+                // clear Aliases to avoid confusions
+                Aliases.clear();
+            }
             // Find the relative redirection between lhs and rhs
             // example for a = &b:(1, 0)
             auto Redirections = AT.extractStatementType(&*I);
