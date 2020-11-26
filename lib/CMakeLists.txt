@@ -4,4 +4,4 @@ add_library(AliasAnalysis SHARED
 set_target_properties(AliasAnalysis PROPERTIES
     COMPILE_FLAGS "-g -std=c++14 -fno-rtti"
 )
-target_link_libraries(AliasAnalysis AliasToken)
+target_link_libraries(AliasAnalysis AliasToken AliasBench)

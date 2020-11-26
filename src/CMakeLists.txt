@@ -1,4 +1,4 @@
-set(LLVM_LINK_COMPONENTS core support irreader)
+set(LLVM_LINK_COMPONENTS core support irreader transformutils)
 
 add_executable(AADriver Driver.cpp)
 set_target_properties(AADriver PROPERTIES

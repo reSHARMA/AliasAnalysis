@@ -1,4 +1,5 @@
 #include "AliasAnalysis.h"
+#include "AliasBench/Benchmark.h"
 #include "AliasGraph/AliasGraph.h"
 #include "AliasToken/Alias.h"
 #include "AliasToken/AliasToken.h"
@@ -12,6 +13,7 @@ using namespace llvm;
 bool AliasAnalysisPass::runOnModule(Module& M) {
     AliasUtil::AliasTokens AT;
     AliasGraphUtil::AliasGraph<AliasUtil::Alias> AG;
+    BenchmarkUtil::BenchmarkRunner Bench;
     for (Function& F : M.functions()) {
         for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I) {
             // Extract alias tokens from the instruction
@@ -26,9 +28,17 @@ bool AliasAnalysisPass::runOnModule(Module& M) {
                 AG.insert(Aliases[0], Aliases[1], Redirections.first,
                           Redirections.second);
             }
+            // Evaluate precision
+            auto BenchVar = Bench.extract(&*I);
+            if (BenchVar.size() == 2) {
+                Bench.evaluate(&*I,
+                               AG.getPointee(AT.getAliasToken(BenchVar[0])),
+                               AG.getPointee(AT.getAliasToken(BenchVar[1])));
+            }
         }
     }
     std::cout << AG;
+    std::cout << Bench;
     return false;
 }
 
