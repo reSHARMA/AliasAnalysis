@@ -1,4 +1,5 @@
 add_library(AliasAnalysis SHARED
+    AliasUtils.cpp
     AliasAnalysis.cpp
 )
 set_target_properties(AliasAnalysis PROPERTIES

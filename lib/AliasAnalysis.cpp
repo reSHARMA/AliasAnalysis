@@ -3,27 +3,28 @@
 #include "AliasGraph/AliasGraph.h"
 #include "AliasToken/Alias.h"
 #include "AliasToken/AliasToken.h"
+#include "AliasUtils.h"
 #include "iostream"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
 
 using namespace llvm;
-
 bool AliasAnalysisPass::runOnModule(Module& M) {
     AliasUtil::AliasTokens AT;
     AliasGraphUtil::AliasGraph<AliasUtil::Alias> AG;
     BenchmarkUtil::BenchmarkRunner Bench;
     for (Function& F : M.functions()) {
+        InstNamer(F);
         for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I) {
             // Extract alias tokens from the instruction
             auto Aliases = AT.extractAliasToken(&*I);
             // Handle special cases:
             // Handle GEP instructions
             if (GetElementPtrInst* Inst = dyn_cast<GetElementPtrInst>(&*I)) {
-                for(auto A : AG.getPointee(Aliases[1])){
-                    AliasUtil::Alias * FieldVal = new AliasUtil::Alias(A);
-                    FieldVal -> setIndex(Inst);
+                for (auto A : AG.getPointee(Aliases[1])) {
+                    AliasUtil::Alias* FieldVal = new AliasUtil::Alias(A);
+                    FieldVal->setIndex(Inst);
                     FieldVal = AT.getAliasToken(FieldVal);
                     AG.insert(Aliases[0], FieldVal, 1, 0);
                 }
