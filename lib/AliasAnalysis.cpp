@@ -14,6 +14,21 @@ bool AliasAnalysisPass::runOnModule(Module& M) {
     AliasUtil::AliasTokens AT;
     AliasGraphUtil::AliasGraph<AliasUtil::Alias> AG;
     BenchmarkUtil::BenchmarkRunner Bench;
+    // Handle global variables
+    for (auto& G : M.getGlobalList()) {
+        auto Aliases = AT.extractAliasToken(&G);
+        auto Redirections = AT.extractStatementType(&G);
+        if (Aliases.size() == 2) {
+            AG.insert(Aliases[0], Aliases[1], Redirections.first,
+                      Redirections.second);
+            // Handle the case when a global variable is initialized with an
+            // address
+            if (llvm::GlobalVariable* Constant =
+                    llvm::dyn_cast<GlobalVariable>(G.getInitializer())) {
+                AG.insert(Aliases[0], AT.getAliasToken(Constant), 2, 1);
+            }
+        }
+    }
     for (Function& F : M.functions()) {
         InstNamer(F);
         for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I) {
