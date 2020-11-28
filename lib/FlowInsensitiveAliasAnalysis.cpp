@@ -1,4 +1,4 @@
-#include "AliasAnalysis.h"
+#include "FlowInsensitiveAliasAnalysis.h"
 #include "AliasBench/Benchmark.h"
 #include "AliasGraph/AliasGraph.h"
 #include "AliasToken/Alias.h"
@@ -10,7 +10,7 @@
 #include "llvm/IR/Module.h"
 
 using namespace llvm;
-bool AliasAnalysisPass::runOnModule(Module& M) {
+bool FlowInsensitiveAliasAnalysisPass::runOnModule(Module& M) {
     AliasUtil::AliasTokens AT;
     AliasGraphUtil::AliasGraph<AliasUtil::Alias> AG;
     BenchmarkUtil::BenchmarkRunner Bench;
@@ -70,6 +70,6 @@ bool AliasAnalysisPass::runOnModule(Module& M) {
     return false;
 }
 
-char AliasAnalysisPass::ID = 0;
-static RegisterPass<AliasAnalysisPass> X(
+char FlowInsensitiveAliasAnalysisPass::ID = 0;
+static RegisterPass<FlowInsensitiveAliasAnalysisPass> X(
     "aa-basic", "Basic implementation of alias analysis in LLVM", true, true);
