@@ -17,6 +17,7 @@ bool FlowSensitiveAliasAnalysisPass::runOnModule(Module& M) {
     std::map<Instruction*, AliasMap> AliasIn, AliasOut;
     AliasUtil::AliasTokens AT;
     BenchmarkUtil::BenchmarkRunner Bench;
+    std::map<llvm::Function*, std::vector<llvm::Value*>> FuncRetValue;
     // Handle global variables
     AliasMap GlobalAliasMap;
     for (auto& G : M.getGlobalList()) {
@@ -38,19 +39,42 @@ bool FlowSensitiveAliasAnalysisPass::runOnModule(Module& M) {
         InstNamer(F);
         for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I) {
             std::vector<AliasMap> Predecessors;
-            if (I == inst_begin(F)) Predecessors.push_back(GlobalAliasMap);
-            for (Instruction* I : GetPred(&Start)) {
+            // Handle function arguments
+            AliasMap ArgAliasMap;
+            for (auto Arg = F.arg_begin(); Arg != F.arg_end(); Arg++) {
+                auto Aliases = AT.extractAliasToken(Arg, &F);
+                if (Aliases.size() == 2)
+                    ArgAliasMap.insert(Aliases[0], Aliases[1], 1, 0);
+            }
+            // Only calculate aliases for global variables and arguments at the
+            // start of the function
+            if (I == inst_begin(F)) {
+                Predecessors.push_back(GlobalAliasMap);
+                Predecessors.push_back(ArgAliasMap);
+            }
+            // Calculate control flow predecessor
+            for (Instruction* I : GetPred(&*I)) {
                 if (AliasOut.find(I) != AliasOut.end())
                     Predecessors.push_back(AliasOut[I]);
             }
             AliasIn[&*I].merge(Predecessors);
-            AlliasOut[&*I] = AliasIn[&*I];
+            AliasOut[&*I] = AliasIn[&*I];
             // Extract alias tokens from the instruction
             auto Aliases = AT.extractAliasToken(&*I);
+            // Handle killing
+            if (StoreInst* Inst = dyn_cast<StoreInst>(&*I)) {
+                if (Aliases.size() == 2) {
+                    auto Pointee = AliasOut[&*I].getPointee(Aliases[0]);
+                    if (Pointee.size() == 1) {
+                        auto KillNode = *(Pointee.begin());
+                        AliasOut[&*I].erase(KillNode);
+                    }
+                }
+            }
             // Handle special cases:
             // Handle GEP instructions
             if (GetElementPtrInst* Inst = dyn_cast<GetElementPtrInst>(&*I)) {
-                for (auto A : AG.getPointee(Aliases[1])) {
+                for (auto A : AliasOut[&*I].getPointee(Aliases[1])) {
                     AliasUtil::Alias* FieldVal = new AliasUtil::Alias(A);
                     FieldVal->setIndex(Inst);
                     FieldVal = AT.getAliasToken(FieldVal);
@@ -58,6 +82,48 @@ bool FlowSensitiveAliasAnalysisPass::runOnModule(Module& M) {
                 }
                 // clear Aliases to avoid confusions
                 Aliases.clear();
+            }
+            // handle return instructions
+            if (ReturnInst* Inst = dyn_cast<ReturnInst>(&*I)) {
+                Value* RetVal = Inst->getReturnValue();
+                if (RetVal && !isa<llvm::ConstantInt>(RetVal))
+                    FuncRetValue[&F].push_back(RetVal);
+            }
+            // handle function call
+            if (CallInst* Inst = dyn_cast<CallInst>(&*I)) {
+                if (!Inst->isIndirectCall()) {
+                    Function& Func = *Inst->getCalledFunction();
+                    if (!SkipFunction(Func)) {
+                        // handle return value
+                        if (!Inst->doesNotReturn()) {
+                            for (Value* V : FuncRetValue[&Func]) {
+                                AliasUtil::Alias* RetVal =
+                                    AT.getAliasToken(new AliasUtil::Alias(V));
+                                for (auto P :
+                                     AliasOut[cast<Instruction>(V)].getPointee(
+                                         RetVal))
+                                    AliasOut[&*I].insert(Aliases[0], P, 1, 0);
+                            }
+                        }
+                        // handle pass by reference
+                        int ArgNum = 0;
+                        for (Value* Arg : Inst->args()) {
+                            AliasUtil::Alias* ActualArg =
+                                AT.getAliasToken(new AliasUtil::Alias(Arg));
+                            AliasUtil::Alias* FormalArg = AT.getAliasToken(
+                                new AliasUtil::Alias(Func.getArg(ArgNum)));
+                            AliasIn[&(Func.front().front())].insert(
+                                FormalArg, ActualArg, 1, 0);
+                            ArgNum += 1;
+                        }
+                        // handle change made to globals
+                        for (auto P : AliasOut[&Func.back().back()]) {
+                            if (!P.first->sameFunc(&Func)) {
+                                AliasOut[&*I].insert(P.first, P.second);
+                            }
+                        }
+                    }
+                }
             }
             // Find the relative redirection between lhs and rhs
             // example for a = &b:(1, 0)
@@ -67,15 +133,24 @@ bool FlowSensitiveAliasAnalysisPass::runOnModule(Module& M) {
                 // for heap address in RHS make sure it is (x, 0)
                 if (Aliases[1]->isMem()) Redirections.second = 0;
                 AliasOut[&*I].insert(Aliases[0], Aliases[1], Redirections.first,
-                          Redirections.second);
+                                     Redirections.second);
             }
             // Evaluate precision
             auto BenchVar = Bench.extract(&*I);
             if (BenchVar.size() == 2) {
-                Bench.evaluate(&*I,
-                               AG.getPointee(AT.getAliasToken(BenchVar[0])),
-                               AG.getPointee(AT.getAliasToken(BenchVar[1])));
+                Bench.evaluate(
+                    &*I,
+                    AliasOut[&*I].getPointee(AT.getAliasToken(BenchVar[0])),
+                    AliasOut[&*I].getPointee(AT.getAliasToken(BenchVar[1])));
             }
+        }
+    }
+    for (Function& F : M.functions()) {
+        for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I) {
+            std::cout << AliasIn[&*I];
+            llvm::errs() << "\n[Instruction] " << *I << "\n\n";
+            std::cout << AliasOut[&*I];
+            std::cout << "-------------------------------------\n";
         }
     }
     std::cout << Bench;
