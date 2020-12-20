@@ -3,7 +3,7 @@
 #include "AliasGraph/AliasGraph.h"
 #include "AliasToken/Alias.h"
 #include "AliasToken/AliasToken.h"
-#include "AliasUtils.h"
+#include "CFGUtils/CFGUtils.h"
 #include "iostream"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/LegacyPassManager.h"
@@ -30,7 +30,7 @@ bool FlowInsensitiveAliasAnalysisPass::runOnModule(Module& M) {
         }
     }
     for (Function& F : M.functions()) {
-        InstNamer(F);
+        CFGUtils::InstNamer(F);
         for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I) {
             // Extract alias tokens from the instruction
             auto Aliases = AT.extractAliasToken(&*I);

@@ -21,5 +21,8 @@ set_target_properties(AliasToken PROPERTIES IMPORTED_LOCATION "/usr/local/lib/li
 add_library(AliasBench SHARED IMPORTED)
 set_target_properties(AliasBench PROPERTIES IMPORTED_LOCATION "/usr/local/lib/libAliasBench.so")
 
+add_library(CFGUtils SHARED IMPORTED)
+set_target_properties(CFGUtils PROPERTIES IMPORTED_LOCATION "/usr/local/lib/libCFGUtils.so")
+
 add_subdirectory(lib)
 add_subdirectory(src)

@@ -3,7 +3,7 @@
 #include "AliasGraph/AliasGraph.h"
 #include "AliasToken/Alias.h"
 #include "AliasToken/AliasToken.h"
-#include "AliasUtils.h"
+#include "CFGUtils/CFGUtils.h"
 #include "iostream"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/LegacyPassManager.h"
@@ -36,7 +36,7 @@ bool FlowSensitiveAliasAnalysisPass::runOnModule(Module& M) {
         }
     }
     for (Function& F : M.functions()) {
-        InstNamer(F);
+        CFGUtils::InstNamer(F);
         for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I) {
             std::vector<AliasMap> Predecessors;
             // Handle function arguments
@@ -53,7 +53,7 @@ bool FlowSensitiveAliasAnalysisPass::runOnModule(Module& M) {
                 Predecessors.push_back(ArgAliasMap);
             }
             // Calculate control flow predecessor
-            for (Instruction* I : GetPred(&*I)) {
+            for (Instruction* I : CFGUtils::GetPred(&*I)) {
                 if (AliasOut.find(I) != AliasOut.end())
                     Predecessors.push_back(AliasOut[I]);
             }
@@ -93,7 +93,7 @@ bool FlowSensitiveAliasAnalysisPass::runOnModule(Module& M) {
             if (CallInst* Inst = dyn_cast<CallInst>(&*I)) {
                 if (!Inst->isIndirectCall()) {
                     Function& Func = *Inst->getCalledFunction();
-                    if (!SkipFunction(Func)) {
+                    if (!CFGUtils::SkipFunction(Func)) {
                         // handle return value
                         if (!Inst->doesNotReturn()) {
                             for (Value* V : FuncRetValue[&Func]) {
