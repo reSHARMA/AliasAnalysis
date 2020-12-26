@@ -1,5 +1,4 @@
-set(LLVM_LINK_COMPONENTS core support irreader transformutils)
-
+set(LLVM_LINK_COMPONENTS core support irreader passes)
 add_executable(AADriver Driver.cpp)
 set_target_properties(AADriver PROPERTIES
     COMPILE_FLAGS "-std=c++14 -fno-rtti"

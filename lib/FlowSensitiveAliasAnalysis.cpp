@@ -20,7 +20,6 @@ class PointsToAnalysis {
     std::map<Instruction*, AliasMap> AliasIn, AliasOut;
     AliasUtil::AliasTokens AT;
     BenchmarkUtil::BenchmarkRunner Bench;
-    std::map<llvm::Function*, std::vector<llvm::Value*>> FuncRetValue;
     std::queue<llvm::Instruction*> WorkList;
 
    public:
@@ -118,12 +117,6 @@ class PointsToAnalysis {
             // clear Aliases to avoid confusions
             Aliases.clear();
         }
-        // handle return instructions
-        if (ReturnInst* RI = dyn_cast<ReturnInst>(Inst)) {
-            Value* RetVal = RI->getReturnValue();
-            if (RetVal && !isa<llvm::ConstantInt>(RetVal))
-                FuncRetValue[ParentFunc].push_back(RetVal);
-        }
         // handle function call
         if (CallInst* CI = dyn_cast<CallInst>(Inst)) {
             if (!CI->isIndirectCall()) {
@@ -134,13 +127,13 @@ class PointsToAnalysis {
                         std::vector<AliasMap>{AliasIn[Inst]});
                     // handle return value
                     if (!CI->doesNotReturn()) {
-                        for (Value* V : FuncRetValue[&Func]) {
-                            AliasUtil::Alias* RetVal =
-                                AT.getAliasToken(new AliasUtil::Alias(V));
-                            for (auto P :
-                                 AliasOut[cast<Instruction>(V)].getPointee(
-                                     RetVal))
-                                AliasOut[Inst].insert(Aliases[0], P, 1, 0);
+                        if (ReturnInst* RI =
+                                dyn_cast<ReturnInst>(&(Func.back().back()))) {
+                            auto CallAliases = AT.extractAliasToken(RI);
+                            if (CallAliases.size() == 1) {
+                                AliasOut[&(Func.back().back())].insert(
+                                    Aliases[0], CallAliases[0], 1, 1);
+                            }
                         }
                     }
                     // handle pass by reference
