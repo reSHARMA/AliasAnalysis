@@ -24,5 +24,8 @@ set_target_properties(AliasBench PROPERTIES IMPORTED_LOCATION "/usr/local/lib/li
 add_library(CFGUtils SHARED IMPORTED)
 set_target_properties(CFGUtils PROPERTIES IMPORTED_LOCATION "/usr/local/lib/libCFGUtils.so")
 
+add_library(Worklist SHARED IMPORTED)
+set_target_properties(Worklist PROPERTIES IMPORTED_LOCATION "/usr/local/lib/libWorklist.so")
+
 add_subdirectory(lib)
 add_subdirectory(src)
