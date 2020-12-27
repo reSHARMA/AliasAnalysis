@@ -4,12 +4,12 @@
 #include "AliasToken/Alias.h"
 #include "AliasToken/AliasToken.h"
 #include "CFGUtils/CFGUtils.h"
-#include "Worklist/Worklist.h"
 #include "iostream"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
 #include "map"
+#include "queue"
 
 using namespace llvm;
 using AliasMap = AliasGraphUtil::AliasGraph<AliasUtil::Alias>;
@@ -20,10 +20,13 @@ class PointsToAnalysis {
     std::map<Instruction*, AliasMap> AliasIn, AliasOut;
     AliasUtil::AliasTokens AT;
     BenchmarkUtil::BenchmarkRunner Bench;
-    WorklistUtil::Worklist WL;
+    std::queue<llvm::Instruction*> WorkList;
 
    public:
-    PointsToAnalysis(Module& M) : WL(&M) { handleGlobalVar(M); }
+    PointsToAnalysis(Module& M) {
+        initializeWorkList(M);
+        handleGlobalVar(M);
+    }
     void handleGlobalVar(llvm::Module& M) {
         // Handle global variables
         for (auto& G : M.getGlobalList()) {
@@ -42,15 +45,24 @@ class PointsToAnalysis {
             }
         }
     }
+    void initializeWorkList(llvm::Module& M) {
+        for (Function& F : M.functions()) {
+            for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E;
+                 ++I) {
+                WorkList.push(&*I);
+            }
+        }
+    }
     void runOnWorkList() {
-        while (!WL.empty()) {
-            Instruction* Inst = WL.pop();
+        while (!WorkList.empty()) {
+            Instruction* Inst = WorkList.front();
+            WorkList.pop();
             AliasMap OldAliasInfo = AliasOut[Inst];
             runAnalysis(Inst);
             AliasMap NewAliasInfo = AliasOut[Inst];
             if (!(OldAliasInfo == NewAliasInfo)) {
                 for (Instruction* I : CFGUtils::GetSucc(Inst)) {
-                    WL.push(I);
+                    WorkList.push(I);
                 }
             }
         }
