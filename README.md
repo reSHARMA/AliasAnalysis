@@ -17,8 +17,10 @@
 
 ## Getting Started
 
-Basic implementation of alias analysis in LLVM. 
-[x] Flow-insensitive Intra-procedural variant 
+Basic implementation of alias analysis in LLVM.   
+[x] Flow-insensitive Intra-procedural variant   
+[x] Flow-sensitive Inter-procedural variant   
+[x] Context-Sensitive Flow-sensitive Inter-procedural variant   
 
 ### Building from source
 ```sh
@@ -29,5 +31,9 @@ $ cmake .. && make
 ```
 
 ## Usage
-Use ```AADriver``` to run the analysis on any LLVM IR file.  
-Example: AADriver test.ll
+Use ```AADriver``` to run the analysis on any LLVM IR file.    
+Run the flow-insensitive variant by ```AADriver test.ll```    
+For now the first argument should be the LLVM IR file     
+Use ```-fs``` for the flow-sensitive variant ```AADriver test.ll -fs```  
+Use ```-cs``` for the control-sensitive variant ```AADriver test.ll -fs -cs```
+

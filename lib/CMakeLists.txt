@@ -1,6 +1,7 @@
 add_library(AliasAnalysis SHARED
     FlowInsensitiveAliasAnalysis.cpp
     FlowSensitiveAliasAnalysis.cpp
+    ContextSensitiveAliasAnalysis.cpp
 )
 set_target_properties(AliasAnalysis PROPERTIES
     COMPILE_FLAGS "-std=c++14 -fno-rtti"

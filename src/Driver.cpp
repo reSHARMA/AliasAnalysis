@@ -1,3 +1,4 @@
+#include "ContextSensitiveAliasAnalysis.h"
 #include "FlowInsensitiveAliasAnalysis.h"
 #include "FlowSensitiveAliasAnalysis.h"
 #include "llvm/IR/LLVMContext.h"
@@ -21,13 +22,17 @@ int main(int argc, char** argv) {
         FPM.run(F);
     }
     // TODO Parse cli args elegantly
-    if (argc == 1) {
+    if (argc == 2) {
         FlowInsensitiveAliasAnalysisPass* AAP =
             new FlowInsensitiveAliasAnalysisPass();
         AAP->runOnModule(*M);
-    } else {
+    } else if (argc == 3) {
         FlowSensitiveAliasAnalysisPass* AAP =
             new FlowSensitiveAliasAnalysisPass();
+        AAP->runOnModule(*M);
+    } else if (argc == 4) {
+        ContextSensitiveAliasAnalysisPass* AAP =
+            new ContextSensitiveAliasAnalysisPass();
         AAP->runOnModule(*M);
     }
     return 0;

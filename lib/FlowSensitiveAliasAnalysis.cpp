@@ -14,6 +14,8 @@
 using namespace llvm;
 using AliasMap = AliasGraphUtil::AliasGraph<AliasUtil::Alias>;
 
+namespace FlowSensitiveAA {
+
 class PointsToAnalysis {
    private:
     AliasMap GlobalAliasMap;
@@ -187,12 +189,13 @@ class PointsToAnalysis {
         std::cout << Bench;
     }
 };
+}
 
 bool FlowSensitiveAliasAnalysisPass::runOnModule(Module& M) {
     for (Function& F : M.functions()) {
         CFGUtils::InstNamer(F);
     }
-    PointsToAnalysis PA(M);
+    FlowSensitiveAA::PointsToAnalysis PA(M);
     PA.runOnWorkList();
     PA.printResults(M);
     return false;
