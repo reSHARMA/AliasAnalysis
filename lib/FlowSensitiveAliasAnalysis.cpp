@@ -9,7 +9,7 @@
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
 #include "map"
-#include "queue"
+#include "stack"
 
 using namespace llvm;
 using AliasMap = AliasGraphUtil::AliasGraph<AliasUtil::Alias>;
@@ -22,7 +22,8 @@ class PointsToAnalysis {
     std::map<Instruction*, AliasMap> AliasIn, AliasOut;
     AliasUtil::AliasTokens AT;
     BenchmarkUtil::BenchmarkRunner Bench;
-    std::queue<llvm::Instruction*> WorkList;
+    std::stack<llvm::Instruction*> WorkList;
+    std::map<llvm::Function*, std::vector<llvm::Instruction*>> CallGraph;
 
    public:
     PointsToAnalysis(Module& M) {
@@ -51,13 +52,15 @@ class PointsToAnalysis {
         for (Function& F : M.functions()) {
             for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E;
                  ++I) {
-                WorkList.push(&*I);
+                if (I == inst_begin(F)) {
+                    WorkList.push(&*I);
+                }
             }
         }
     }
     void runOnWorkList() {
         while (!WorkList.empty()) {
-            Instruction* Inst = WorkList.front();
+            Instruction* Inst = WorkList.top();
             WorkList.pop();
             AliasMap OldAliasInfo = AliasOut[Inst];
             runAnalysis(Inst);
@@ -127,17 +130,6 @@ class PointsToAnalysis {
                     // pass alias information
                     AliasIn[&(Func.front().front())].merge(
                         std::vector<AliasMap>{AliasIn[Inst]});
-                    // handle return value
-                    if (!CI->doesNotReturn()) {
-                        if (ReturnInst* RI =
-                                dyn_cast<ReturnInst>(&(Func.back().back()))) {
-                            auto CallAliases = AT.extractAliasToken(RI);
-                            if (CallAliases.size() == 1) {
-                                AliasOut[&(Func.back().back())].insert(
-                                    Aliases[0], CallAliases[0], 1, 1);
-                            }
-                        }
-                    }
                     // handle pass by reference
                     int ArgNum = 0;
                     for (Value* Arg : CI->args()) {
@@ -149,6 +141,19 @@ class PointsToAnalysis {
                             FormalArg, ActualArg, 1, 1);
                         ArgNum += 1;
                     }
+                    this->WorkList.push(&(Func.front().front()));
+                    this->CallGraph[&Func].push_back(Inst);
+                    // handle return value
+                    if (!CI->doesNotReturn()) {
+                        if (ReturnInst* RI =
+                                dyn_cast<ReturnInst>(&(Func.back().back()))) {
+                            auto CallAliases = AT.extractAliasToken(RI);
+                            if (CallAliases.size() == 1) {
+                                AliasOut[&(Func.back().back())].insert(
+                                    Aliases[0], CallAliases[0], 1, 1);
+                            }
+                        }
+                    }
                     // handle change made to globals
                     for (auto P : AliasOut[&Func.back().back()]) {
                         if (!P.first->sameFunc(&Func)) {
@@ -156,6 +161,11 @@ class PointsToAnalysis {
                         }
                     }
                 }
+            }
+        }
+        if (&ParentBB->back() == Inst) {
+            for (auto C : this->CallGraph[ParentFunc]) {
+                this->WorkList.push(C);
             }
         }
         // Find the relative redirection between lhs and rhs
@@ -189,7 +199,7 @@ class PointsToAnalysis {
         std::cout << Bench;
     }
 };
-}
+}  // namespace FlowSensitiveAA
 
 bool FlowSensitiveAliasAnalysisPass::runOnModule(Module& M) {
     for (Function& F : M.functions()) {
