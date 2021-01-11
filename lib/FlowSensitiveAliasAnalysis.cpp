@@ -9,6 +9,7 @@
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
 #include "map"
+#include "set"
 #include "stack"
 
 using namespace llvm;
@@ -23,7 +24,7 @@ class PointsToAnalysis {
     AliasUtil::AliasTokens AT;
     BenchmarkUtil::BenchmarkRunner Bench;
     std::stack<llvm::Instruction*> WorkList;
-    std::map<llvm::Function*, std::vector<llvm::Instruction*>> CallGraph;
+    std::map<llvm::Function*, std::set<llvm::Instruction*>> CallGraph;
 
    public:
     PointsToAnalysis(Module& M) {
@@ -142,7 +143,7 @@ class PointsToAnalysis {
                         ArgNum += 1;
                     }
                     this->WorkList.push(&(Func.front().front()));
-                    this->CallGraph[&Func].push_back(Inst);
+                    this->CallGraph[&Func].insert(Inst);
                     // handle return value
                     if (!CI->doesNotReturn()) {
                         if (ReturnInst* RI =
