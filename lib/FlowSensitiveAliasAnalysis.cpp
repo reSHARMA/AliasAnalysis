@@ -73,6 +73,30 @@ class PointsToAnalysis {
             }
         }
     }
+    void handleReturnValue(llvm::Instruction* Inst) {
+        AliasOut[Inst] = AliasIn[Inst];
+        auto Aliases = AT.extractAliasToken(Inst);
+        if (CallInst* CI = dyn_cast<CallInst>(Inst)) {
+            Function& Func = *CI->getCalledFunction();
+            // handle return value
+            if (!CI->doesNotReturn()) {
+                if (ReturnInst* RI =
+                        dyn_cast<ReturnInst>(&(Func.back().back()))) {
+                    auto CallAliases = AT.extractAliasToken(RI);
+                    if (CallAliases.size() == 1) {
+                        AliasOut[&(Func.back().back())].insert(
+                            Aliases[0], CallAliases[0], 1, 1);
+                    }
+                }
+            }
+            // handle change made to globals
+            for (auto P : AliasOut[&Func.back().back()]) {
+                if (!P.first->sameFunc(&Func)) {
+                    AliasOut[Inst].insert(P.first, P.second);
+                }
+            }
+        }
+    }
     void runAnalysis(llvm::Instruction* Inst) {
         llvm::BasicBlock* ParentBB = Inst->getParent();
         llvm::Function* ParentFunc = ParentBB->getParent();
@@ -144,29 +168,14 @@ class PointsToAnalysis {
                     }
                     this->WorkList.push(&(Func.front().front()));
                     this->CallGraph[&Func].insert(Inst);
-                    // handle return value
-                    if (!CI->doesNotReturn()) {
-                        if (ReturnInst* RI =
-                                dyn_cast<ReturnInst>(&(Func.back().back()))) {
-                            auto CallAliases = AT.extractAliasToken(RI);
-                            if (CallAliases.size() == 1) {
-                                AliasOut[&(Func.back().back())].insert(
-                                    Aliases[0], CallAliases[0], 1, 1);
-                            }
-                        }
-                    }
-                    // handle change made to globals
-                    for (auto P : AliasOut[&Func.back().back()]) {
-                        if (!P.first->sameFunc(&Func)) {
-                            AliasOut[Inst].insert(P.first, P.second);
-                        }
-                    }
+                    this->handleReturnValue(Inst);
                 }
             }
         }
         if (&ParentBB->back() == Inst) {
             for (auto C : this->CallGraph[ParentFunc]) {
                 this->WorkList.push(C);
+                // this->handleReturnValue(C);
             }
         }
         // Find the relative redirection between lhs and rhs
