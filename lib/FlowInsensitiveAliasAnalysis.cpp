@@ -37,14 +37,11 @@ bool FlowInsensitiveAliasAnalysisPass::runOnModule(Module& M) {
             // Handle special cases:
             // Handle GEP instructions
             if (GetElementPtrInst* Inst = dyn_cast<GetElementPtrInst>(&*I)) {
-                for (auto A : AG.getPointee(Aliases[1])) {
-                    AliasUtil::Alias* FieldVal = new AliasUtil::Alias(A);
-                    FieldVal->setIndex(Inst);
-                    FieldVal = AT.getAliasToken(FieldVal);
-                    AG.insert(Aliases[0], FieldVal, 1, 0);
-                }
-                // clear Aliases to avoid confusions
-                Aliases.clear();
+                assert(AG.getPointee(Aliases[1]).size() < 2 &&
+                       "GEP impl is not sound!");
+                auto* Ptr = AG.getUniquePointee(Aliases[1]);
+                Aliases[1] = AT.handleGEPUtil(Inst, Ptr);
+                if (!Aliases[1]) Aliases.clear();
             }
             // Find the relative redirection between lhs and rhs
             // example for a = &b:(1, 0)

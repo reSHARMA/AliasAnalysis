@@ -141,14 +141,11 @@ class PointsToAnalysis {
         // Handle special cases:
         // Handle GEP instructions
         if (GetElementPtrInst* GEP = dyn_cast<GetElementPtrInst>(Inst)) {
-            for (auto A : AliasOut[Inst].getPointee(Aliases[1])) {
-                AliasUtil::Alias* FieldVal = new AliasUtil::Alias(A);
-                FieldVal->setIndex(GEP);
-                FieldVal = AT.getAliasToken(FieldVal);
-                AliasOut[Inst].insert(Aliases[0], FieldVal, 1, 0);
-            }
-            // clear Aliases to avoid confusions
-            Aliases.clear();
+            assert(AliasOut[Inst].getPointee(Aliases[1]).size() < 2 &&
+                   "GEP impl is not sound!");
+            auto* Ptr = AliasOut[Inst].getUniquePointee(Aliases[1]);
+            Aliases[1] = AT.handleGEPUtil(GEP, Ptr);
+            if (!Aliases[1]) Aliases.clear();
         }
         // handle function call
         if (CallInst* CI = dyn_cast<CallInst>(Inst)) {
