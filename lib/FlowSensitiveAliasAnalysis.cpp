@@ -92,7 +92,10 @@ class PointsToAnalysis {
             // handle change made to globals
             for (auto P : AliasOut[&Func.back().back()]) {
                 if (!P.first->sameFunc(&Func)) {
-                    AliasOut[Inst].insert(P.first, P.second);
+                    for (auto X : P.second) {
+                        if (!X->sameFunc(&Func))
+                            AliasOut[Inst].insert(P.first, X);
+                    }
                 }
             }
         }

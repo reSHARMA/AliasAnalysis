@@ -15,14 +15,15 @@
 using namespace llvm;
 using AliasMap = AliasGraphUtil::AliasGraph<AliasUtil::Alias>;
 
-namespace ContextSensitiveAA{
+namespace ContextSensitiveAA {
 
 class PointsToAnalysis {
    private:
     AliasMap GlobalAliasMap;
     AliasUtil::AliasTokens AT;
     BenchmarkUtil::BenchmarkRunner Bench;
-    std::stack<std::pair<ValueContextUtil::Context, llvm::Instruction*>> WorkList;
+    std::stack<std::pair<ValueContextUtil::Context, llvm::Instruction*>>
+        WorkList;
     ValueContextUtil::ValueContext<AliasMap> VC;
 
    public:
@@ -179,8 +180,10 @@ class PointsToAnalysis {
                     VC.getDataFlowOut[C][Inst] = VC.getTop();
                     for (auto P : TempResult) {
                         if (!P.first->sameFunc(&Func)) {
-                            VC.getDataFlowOut[C][Inst].insert(P.first,
-                                                              P.second);
+                            for (auto X : P.second)
+                                if (!X->sameFunc(&Func))
+                                    VC.getDataFlowOut[C][Inst].insert(P.first,
+                                                                      X);
                         }
                     }
                 }
@@ -230,7 +233,7 @@ class PointsToAnalysis {
         std::cout << Bench;
     }
 };
-}
+}  // namespace ContextSensitiveAA
 
 bool ContextSensitiveAliasAnalysisPass::runOnModule(Module& M) {
     for (Function& F : M.functions()) {
