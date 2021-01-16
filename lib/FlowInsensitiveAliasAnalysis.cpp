@@ -8,6 +8,7 @@
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
+#include "llvm/IR/Operator.h"
 
 using namespace llvm;
 bool FlowInsensitiveAliasAnalysisPass::runOnModule(Module& M) {
@@ -34,6 +35,9 @@ bool FlowInsensitiveAliasAnalysisPass::runOnModule(Module& M) {
         for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I) {
             // Extract alias tokens from the instruction
             auto Aliases = AT.extractAliasToken(&*I);
+            // Find the relative redirection between lhs and rhs
+            // example for a = &b:(1, 0)
+            auto Redirections = AT.extractStatementType(&*I);
             // Handle special cases:
             // Handle GEP instructions
             if (GetElementPtrInst* Inst = dyn_cast<GetElementPtrInst>(&*I)) {
@@ -43,9 +47,20 @@ bool FlowInsensitiveAliasAnalysisPass::runOnModule(Module& M) {
                 Aliases[1] = AT.handleGEPUtil(Inst, Ptr);
                 if (!Aliases[1]) Aliases.clear();
             }
-            // Find the relative redirection between lhs and rhs
-            // example for a = &b:(1, 0)
-            auto Redirections = AT.extractStatementType(&*I);
+            auto PtrIdx = CFGUtils::getPointerOperandIndex(&*I);
+            if (PtrIdx > -1 && isa<GEPOperator>((*I).getOperand(PtrIdx))) {
+                assert(Aliases.size() > PtrIdx && "fix this in alias token");
+                auto* Op = cast<GEPOperator>((*I).getOperand(PtrIdx));
+                if (!isa<Instruction>(Op)) {
+                    auto* Ptr = AG.getUniquePointee(
+                        AT.getAliasToken(Op->getPointerOperand()));
+                    Ptr = AT.handleGEPUtil(Op, Ptr);
+                    PtrIdx = PtrIdx ? 0 : 1;
+                    Aliases[PtrIdx] = Ptr;
+                    if (!PtrIdx) Redirections.first = 1;
+                    if (!Aliases[PtrIdx]) Aliases.clear();
+                }
+            }
             if (Aliases.size() == 2) {
                 // Default behavior is copy ie (1, 1)
                 // for heap address in RHS make sure it is (x, 0)

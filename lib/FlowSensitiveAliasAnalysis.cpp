@@ -128,6 +128,9 @@ class PointsToAnalysis {
         AliasOut[Inst] = AliasIn[Inst];
         // Extract alias tokens from the instruction
         auto Aliases = AT.extractAliasToken(Inst);
+        // Find the relative redirection between lhs and rhs
+        // example for a = &b:(1, 0)
+        auto Redirections = AT.extractStatementType(Inst);
         // Handle killing
         if (StoreInst* SI = dyn_cast<StoreInst>(Inst)) {
             if (Aliases.size() == 2) {
@@ -146,6 +149,20 @@ class PointsToAnalysis {
             auto* Ptr = AliasOut[Inst].getUniquePointee(Aliases[1]);
             Aliases[1] = AT.handleGEPUtil(GEP, Ptr);
             if (!Aliases[1]) Aliases.clear();
+        }
+        auto PtrIdx = CFGUtils::getPointerOperandIndex(Inst);
+        if (PtrIdx > -1 && isa<GEPOperator>(Inst->getOperand(PtrIdx))) {
+            assert(Aliases.size() > PtrIdx && "fix this in alias token");
+            auto* Op = cast<GEPOperator>(Inst->getOperand(PtrIdx));
+            if (!isa<Instruction>(Op)) {
+                auto* Ptr = AliasOut[Inst].getUniquePointee(
+                    AT.getAliasToken(Op->getPointerOperand()));
+                Ptr = AT.handleGEPUtil(Op, Ptr);
+                PtrIdx = PtrIdx ? 0 : 1;
+                Aliases[PtrIdx] = Ptr;
+                if (!PtrIdx) Redirections.first = 1;
+                if (!Aliases[PtrIdx]) Aliases.clear();
+            }
         }
         // handle function call
         if (CallInst* CI = dyn_cast<CallInst>(Inst)) {
@@ -178,9 +195,6 @@ class PointsToAnalysis {
                 // this->handleReturnValue(C);
             }
         }
-        // Find the relative redirection between lhs and rhs
-        // example for a = &b:(1, 0)
-        auto Redirections = AT.extractStatementType(Inst);
         if (Aliases.size() == 2) {
             // Default behavior is copy ie (1, 1)
             // for heap address in RHS make sure it is (x, 0)
