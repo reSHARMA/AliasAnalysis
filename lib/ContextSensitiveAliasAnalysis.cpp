@@ -1,30 +1,29 @@
 #include "ContextSensitiveAliasAnalysis.h"
-#include "AliasBench/Benchmark.h"
-#include "AliasGraph/AliasGraph.h"
-#include "AliasToken/Alias.h"
-#include "AliasToken/AliasToken.h"
-#include "CFGUtils/CFGUtils.h"
-#include "ValueContext/ValueContext.h"
 #include "iostream"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
 #include "map"
+#include "spatial/Benchmark/Benchmark.h"
+#include "spatial/Graph/AliasGraph.h"
+#include "spatial/Token/Alias.h"
+#include "spatial/Token/AliasToken.h"
+#include "spatial/Utils/CFGUtils.h"
+#include "spatial/Valuecontext/ValueContext.h"
 #include "stack"
 
 using namespace llvm;
-using AliasMap = AliasGraphUtil::AliasGraph<AliasUtil::Alias>;
+using AliasMap = spatial::AliasGraph<spatial::Alias>;
 
 namespace ContextSensitiveAA {
 
 class PointsToAnalysis {
    private:
     AliasMap GlobalAliasMap;
-    AliasUtil::AliasTokens AT;
-    BenchmarkUtil::BenchmarkRunner Bench;
-    std::stack<std::pair<ValueContextUtil::Context, llvm::Instruction*>>
-        WorkList;
-    ValueContextUtil::ValueContext<AliasMap> VC;
+    spatial::AliasTokens AT;
+    spatial::BenchmarkRunner Bench;
+    std::stack<std::pair<spatial::Context, llvm::Instruction*>> WorkList;
+    spatial::ValueContext<AliasMap> VC;
 
    public:
     PointsToAnalysis(Module& M, AliasMap BI, AliasMap Top) : VC(BI, Top) {
@@ -55,7 +54,7 @@ class PointsToAnalysis {
         }
     }
     int initializeFunction(llvm::Function& F, AliasMap InitialValue) {
-        ValueContextUtil::Context C = VC.initializeContext(&F, InitialValue);
+        spatial::Context C = VC.initializeContext(&F, InitialValue);
         for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I) {
             if (I == inst_begin(F)) {
                 VC.getDataFlowIn[C][&*I] = InitialValue;
@@ -66,7 +65,7 @@ class PointsToAnalysis {
     }
     void runOnWorklist() {
         while (!WorkList.empty()) {
-            ValueContextUtil::Context C;
+            spatial::Context C;
             llvm::Instruction* Inst;
             auto Top = WorkList.top();
             std::tie(C, Inst) = Top;
@@ -75,16 +74,15 @@ class PointsToAnalysis {
             runAnalysis(Top);
             AliasMap NewAliasInfo = VC.getDataFlowOut[C][Inst];
             if (!(OldAliasInfo == NewAliasInfo)) {
-                for (Instruction* I : CFGUtils::GetSucc(Inst)) {
+                for (Instruction* I : spatial::GetSucc(Inst)) {
                     WorkList.push(std::make_pair(C, I));
                 }
             }
         }
     }
-    void runAnalysis(
-        std::pair<ValueContextUtil::Context, llvm::Instruction*> InstInfo) {
+    void runAnalysis(std::pair<spatial::Context, llvm::Instruction*> InstInfo) {
         llvm::Instruction* Inst;
-        ValueContextUtil::Context C;
+        spatial::Context C;
         std::tie(C, Inst) = InstInfo;
         llvm::BasicBlock* ParentBB = Inst->getParent();
         llvm::Function* ParentFunc = ParentBB->getParent();
@@ -104,7 +102,7 @@ class PointsToAnalysis {
             Predecessors.push_back(ArgAliasMap);
         }
         // Calculate control flow predecessor
-        for (Instruction* I : CFGUtils::GetPred(Inst)) {
+        for (Instruction* I : spatial::GetPred(Inst)) {
             if (VC.getDataFlowOut[C].find(I) != VC.getDataFlowOut[C].end())
                 Predecessors.push_back(VC.getDataFlowOut[C][I]);
         }
@@ -136,7 +134,7 @@ class PointsToAnalysis {
             Aliases[1] = AT.handleGEPUtil(GEP, Ptr);
             if (!Aliases[1]) Aliases.clear();
         }
-        auto PtrIdx = CFGUtils::getPointerOperandIndex(Inst);
+        auto PtrIdx = spatial::getPointerOperandIndex(Inst);
         if (PtrIdx > -1 && isa<GEPOperator>(Inst->getOperand(PtrIdx))) {
             assert(Aliases.size() > PtrIdx && "fix this in alias token");
             auto* Op = cast<GEPOperator>(Inst->getOperand(PtrIdx));
@@ -154,20 +152,20 @@ class PointsToAnalysis {
         if (CallInst* CI = dyn_cast<CallInst>(Inst)) {
             if (!CI->isIndirectCall()) {
                 Function& Func = *CI->getCalledFunction();
-                if (!CFGUtils::SkipFunction(Func)) {
+                if (!spatial::SkipFunction(Func)) {
                     // handle pass by reference
                     int ArgNum = 0;
                     for (Value* Arg : CI->args()) {
-                        AliasUtil::Alias* ActualArg =
-                            AT.getAliasToken(new AliasUtil::Alias(Arg));
-                        AliasUtil::Alias* FormalArg = AT.getAliasToken(
-                            new AliasUtil::Alias(Func.getArg(ArgNum)));
+                        spatial::Alias* ActualArg =
+                            AT.getAliasToken(new spatial::Alias(Arg));
+                        spatial::Alias* FormalArg = AT.getAliasToken(
+                            new spatial::Alias(Func.getArg(ArgNum)));
                         VC.getDataFlowIn[C][Inst].insert(FormalArg, ActualArg,
                                                          1, 1);
                         ArgNum += 1;
                     }
                     // get context if previously saved
-                    ValueContextUtil::Context CallContext =
+                    spatial::Context CallContext =
                         VC.getSavedContext(&Func, VC.getDataFlowIn[C][Inst]);
                     if (CallContext > -1) {
                         VC.getDataFlowOut[C][Inst] = VC.getResult(CallContext);
@@ -249,7 +247,7 @@ class PointsToAnalysis {
 
 bool ContextSensitiveAliasAnalysisPass::runOnModule(Module& M) {
     for (Function& F : M.functions()) {
-        CFGUtils::InstNamer(F);
+        spatial::InstNamer(F);
     }
     AliasMap BI, Top;
     ContextSensitiveAA::PointsToAnalysis PA(M, BI, Top);

@@ -1,19 +1,19 @@
 #include "FlowSensitiveAliasAnalysis.h"
-#include "AliasBench/Benchmark.h"
-#include "AliasGraph/AliasGraph.h"
-#include "AliasToken/Alias.h"
-#include "AliasToken/AliasToken.h"
-#include "CFGUtils/CFGUtils.h"
 #include "iostream"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
 #include "map"
 #include "set"
+#include "spatial/Benchmark/Benchmark.h"
+#include "spatial/Graph/AliasGraph.h"
+#include "spatial/Token/Alias.h"
+#include "spatial/Token/AliasToken.h"
+#include "spatial/Utils/CFGUtils.h"
 #include "stack"
 
 using namespace llvm;
-using AliasMap = AliasGraphUtil::AliasGraph<AliasUtil::Alias>;
+using AliasMap = spatial::AliasGraph<spatial::Alias>;
 
 namespace FlowSensitiveAA {
 
@@ -21,8 +21,8 @@ class PointsToAnalysis {
    private:
     AliasMap GlobalAliasMap;
     std::map<Instruction*, AliasMap> AliasIn, AliasOut;
-    AliasUtil::AliasTokens AT;
-    BenchmarkUtil::BenchmarkRunner Bench;
+    spatial::AliasTokens AT;
+    spatial::BenchmarkRunner Bench;
     std::stack<llvm::Instruction*> WorkList;
     std::map<llvm::Function*, std::set<llvm::Instruction*>> CallGraph;
 
@@ -67,7 +67,7 @@ class PointsToAnalysis {
             runAnalysis(Inst);
             AliasMap NewAliasInfo = AliasOut[Inst];
             if (!(OldAliasInfo == NewAliasInfo)) {
-                for (Instruction* I : CFGUtils::GetSucc(Inst)) {
+                for (Instruction* I : spatial::GetSucc(Inst)) {
                     WorkList.push(I);
                 }
             }
@@ -120,7 +120,7 @@ class PointsToAnalysis {
             Predecessors.push_back(ArgAliasMap);
         }
         // Calculate control flow predecessor
-        for (Instruction* I : CFGUtils::GetPred(Inst)) {
+        for (Instruction* I : spatial::GetPred(Inst)) {
             if (AliasOut.find(I) != AliasOut.end())
                 Predecessors.push_back(AliasOut[I]);
         }
@@ -150,7 +150,7 @@ class PointsToAnalysis {
             Aliases[1] = AT.handleGEPUtil(GEP, Ptr);
             if (!Aliases[1]) Aliases.clear();
         }
-        auto PtrIdx = CFGUtils::getPointerOperandIndex(Inst);
+        auto PtrIdx = spatial::getPointerOperandIndex(Inst);
         if (PtrIdx > -1 && isa<GEPOperator>(Inst->getOperand(PtrIdx))) {
             assert(Aliases.size() > PtrIdx && "fix this in alias token");
             auto* Op = cast<GEPOperator>(Inst->getOperand(PtrIdx));
@@ -168,17 +168,17 @@ class PointsToAnalysis {
         if (CallInst* CI = dyn_cast<CallInst>(Inst)) {
             if (!CI->isIndirectCall()) {
                 Function& Func = *CI->getCalledFunction();
-                if (!CFGUtils::SkipFunction(Func)) {
+                if (!spatial::SkipFunction(Func)) {
                     // pass alias information
                     AliasIn[&(Func.front().front())].merge(
                         std::vector<AliasMap>{AliasIn[Inst]});
                     // handle pass by reference
                     int ArgNum = 0;
                     for (Value* Arg : CI->args()) {
-                        AliasUtil::Alias* ActualArg =
-                            AT.getAliasToken(new AliasUtil::Alias(Arg));
-                        AliasUtil::Alias* FormalArg = AT.getAliasToken(
-                            new AliasUtil::Alias(Func.getArg(ArgNum)));
+                        spatial::Alias* ActualArg =
+                            AT.getAliasToken(new spatial::Alias(Arg));
+                        spatial::Alias* FormalArg = AT.getAliasToken(
+                            new spatial::Alias(Func.getArg(ArgNum)));
                         AliasIn[&(Func.front().front())].insert(
                             FormalArg, ActualArg, 1, 1);
                         ArgNum += 1;
@@ -227,7 +227,7 @@ class PointsToAnalysis {
 
 bool FlowSensitiveAliasAnalysisPass::runOnModule(Module& M) {
     for (Function& F : M.functions()) {
-        CFGUtils::InstNamer(F);
+        spatial::InstNamer(F);
     }
     FlowSensitiveAA::PointsToAnalysis PA(M);
     PA.runOnWorkList();

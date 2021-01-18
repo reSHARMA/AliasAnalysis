@@ -1,20 +1,20 @@
 #include "FlowInsensitiveAliasAnalysis.h"
-#include "AliasBench/Benchmark.h"
-#include "AliasGraph/AliasGraph.h"
-#include "AliasToken/Alias.h"
-#include "AliasToken/AliasToken.h"
-#include "CFGUtils/CFGUtils.h"
 #include "iostream"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Operator.h"
+#include "spatial/Benchmark/Benchmark.h"
+#include "spatial/Graph/AliasGraph.h"
+#include "spatial/Token/Alias.h"
+#include "spatial/Token/AliasToken.h"
+#include "spatial/Utils/CFGUtils.h"
 
 using namespace llvm;
 bool FlowInsensitiveAliasAnalysisPass::runOnModule(Module& M) {
-    AliasUtil::AliasTokens AT;
-    AliasGraphUtil::AliasGraph<AliasUtil::Alias> AG;
-    BenchmarkUtil::BenchmarkRunner Bench;
+    spatial::AliasTokens AT;
+    spatial::AliasGraph<spatial::Alias> AG;
+    spatial::BenchmarkRunner Bench;
     // Handle global variables
     for (auto& G : M.getGlobalList()) {
         auto Aliases = AT.extractAliasToken(&G);
@@ -31,7 +31,7 @@ bool FlowInsensitiveAliasAnalysisPass::runOnModule(Module& M) {
         }
     }
     for (Function& F : M.functions()) {
-        CFGUtils::InstNamer(F);
+        spatial::InstNamer(F);
         for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I) {
             // Extract alias tokens from the instruction
             auto Aliases = AT.extractAliasToken(&*I);
@@ -47,7 +47,7 @@ bool FlowInsensitiveAliasAnalysisPass::runOnModule(Module& M) {
                 Aliases[1] = AT.handleGEPUtil(Inst, Ptr);
                 if (!Aliases[1]) Aliases.clear();
             }
-            auto PtrIdx = CFGUtils::getPointerOperandIndex(&*I);
+            auto PtrIdx = spatial::getPointerOperandIndex(&*I);
             if (PtrIdx > -1 && isa<GEPOperator>((*I).getOperand(PtrIdx))) {
                 assert(Aliases.size() > PtrIdx && "fix this in alias token");
                 auto* Op = cast<GEPOperator>((*I).getOperand(PtrIdx));

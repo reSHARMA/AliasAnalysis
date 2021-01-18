@@ -15,14 +15,8 @@ link_directories(${LLVM_LIBRARY_DIRS})
 
 find_package(ZLIB REQUIRED)
 
-add_library(AliasToken SHARED IMPORTED)
-set_target_properties(AliasToken PROPERTIES IMPORTED_LOCATION "/usr/local/lib/libAliasToken.so")
-
-add_library(AliasBench SHARED IMPORTED)
-set_target_properties(AliasBench PROPERTIES IMPORTED_LOCATION "/usr/local/lib/libAliasBench.so")
-
-add_library(CFGUtils SHARED IMPORTED)
-set_target_properties(CFGUtils PROPERTIES IMPORTED_LOCATION "/usr/local/lib/libCFGUtils.so")
+add_library(Spatial SHARED IMPORTED)
+set_target_properties(Spatial PROPERTIES IMPORTED_LOCATION "/usr/local/lib/libSpatial.so")
 
 add_subdirectory(lib)
 add_subdirectory(src)
