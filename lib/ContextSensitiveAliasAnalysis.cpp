@@ -127,6 +127,7 @@ class PointsToAnalysis {
         // Handle special cases:
         // Handle GEP instructions
         if (GetElementPtrInst* GEP = dyn_cast<GetElementPtrInst>(Inst)) {
+            Aliases[1] = AT.getAliasTokenWithoutIndex(Aliases[1]);
             assert(VC.getDataFlowOut[C][Inst].getPointee(Aliases[1]).size() <
                        2 &&
                    "GEP impl is not sound!");

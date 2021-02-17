@@ -41,6 +41,7 @@ bool FlowInsensitiveAliasAnalysisPass::runOnModule(Module& M) {
             // Handle special cases:
             // Handle GEP instructions
             if (GetElementPtrInst* Inst = dyn_cast<GetElementPtrInst>(&*I)) {
+                Aliases[1] = AT.getAliasTokenWithoutIndex(Aliases[1]);
                 assert(AG.getPointee(Aliases[1]).size() < 2 &&
                        "GEP impl is not sound!");
                 auto* Ptr = AG.getUniquePointee(Aliases[1]);
