@@ -4,7 +4,7 @@
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Operator.h"
-#include "spatial/Benchmark/Benchmark.h"
+#include "spatial/Benchmark/PTABenchmark.h"
 #include "spatial/Graph/AliasGraph.h"
 #include "spatial/Token/Alias.h"
 #include "spatial/Token/AliasToken.h"
@@ -14,7 +14,7 @@ using namespace llvm;
 bool FlowInsensitiveAliasAnalysisPass::runOnModule(Module& M) {
     spatial::AliasTokens AT;
     spatial::AliasGraph<spatial::Alias> AG;
-    spatial::BenchmarkRunner Bench;
+    spatial::PTABenchmarkRunner *Bench = new spatial::PTABenchmarkRunner();
     // Handle global variables
     for (auto& G : M.getGlobalList()) {
         auto Aliases = AT.extractAliasToken(&G);
@@ -70,16 +70,16 @@ bool FlowInsensitiveAliasAnalysisPass::runOnModule(Module& M) {
                           Redirections.second);
             }
             // Evaluate precision
-            auto BenchVar = Bench.extract(&*I);
+            auto BenchVar = Bench->extract(&*I);
             if (BenchVar.size() == 2) {
-                Bench.evaluate(&*I,
+                Bench->evaluate(&*I,
                                AG.getPointee(AT.getAliasToken(BenchVar[0])),
                                AG.getPointee(AT.getAliasToken(BenchVar[1])));
             }
         }
     }
     std::cout << AG;
-    std::cout << Bench;
+    std::cout << *Bench;
     return false;
 }
 

@@ -4,7 +4,7 @@
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
 #include "map"
-#include "spatial/Benchmark/Benchmark.h"
+#include "spatial/Benchmark/PTABenchmark.h"
 #include "spatial/Graph/AliasGraph.h"
 #include "spatial/Token/Alias.h"
 #include "spatial/Token/AliasToken.h"
@@ -21,7 +21,7 @@ class PointsToAnalysis {
    private:
     AliasMap GlobalAliasMap;
     spatial::AliasTokens AT;
-    spatial::BenchmarkRunner Bench;
+    spatial::PTABenchmarkRunner *Bench;
     std::stack<std::pair<spatial::Context, llvm::Instruction*>> WorkList;
     spatial::ValueContext<AliasMap> VC;
 
@@ -29,6 +29,7 @@ class PointsToAnalysis {
     PointsToAnalysis(Module& M, AliasMap BI, AliasMap Top) : VC(BI, Top) {
         initializeWorkList(M, BI);
         handleGlobalVar(M);
+        Bench = new spatial::PTABenchmarkRunner();
     }
     void handleGlobalVar(llvm::Module& M) {
         // Handle global variables
@@ -218,9 +219,9 @@ class PointsToAnalysis {
             }
         }
         // Evaluate precision
-        auto BenchVar = Bench.extract(Inst);
+        auto BenchVar = Bench->extract(Inst);
         if (BenchVar.size() == 2) {
-            Bench.evaluate(Inst,
+            Bench->evaluate(Inst,
                            VC.getDataFlowOut[C][Inst].getPointee(
                                AT.getAliasToken(BenchVar[0])),
                            VC.getDataFlowOut[C][Inst].getPointee(
@@ -241,7 +242,7 @@ class PointsToAnalysis {
                 }
             }
         }
-        std::cout << Bench;
+        std::cout << *Bench;
     }
 };
 }  // namespace ContextSensitiveAA

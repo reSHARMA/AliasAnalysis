@@ -5,7 +5,7 @@
 #include "llvm/IR/Module.h"
 #include "map"
 #include "set"
-#include "spatial/Benchmark/Benchmark.h"
+#include "spatial/Benchmark/PTABenchmark.h"
 #include "spatial/Graph/AliasGraph.h"
 #include "spatial/Token/Alias.h"
 #include "spatial/Token/AliasToken.h"
@@ -22,7 +22,7 @@ class PointsToAnalysis {
     AliasMap GlobalAliasMap;
     std::map<Instruction*, AliasMap> AliasIn, AliasOut;
     spatial::AliasTokens AT;
-    spatial::BenchmarkRunner Bench;
+    spatial::PTABenchmarkRunner *Bench;
     std::stack<llvm::Instruction*> WorkList;
     std::map<llvm::Function*, std::set<llvm::Instruction*>> CallGraph;
 
@@ -30,6 +30,7 @@ class PointsToAnalysis {
     PointsToAnalysis(Module& M) {
         initializeWorkList(M);
         handleGlobalVar(M);
+        Bench = new spatial::PTABenchmarkRunner();
     }
     void handleGlobalVar(llvm::Module& M) {
         // Handle global variables
@@ -204,9 +205,9 @@ class PointsToAnalysis {
                                   Redirections.second);
         }
         // Evaluate precision
-        auto BenchVar = Bench.extract(Inst);
+        auto BenchVar = Bench->extract(Inst);
         if (BenchVar.size() == 2) {
-            Bench.evaluate(
+            Bench->evaluate(
                 Inst, AliasOut[Inst].getPointee(AT.getAliasToken(BenchVar[0])),
                 AliasOut[Inst].getPointee(AT.getAliasToken(BenchVar[1])));
         }
@@ -221,7 +222,7 @@ class PointsToAnalysis {
                 std::cout << "----------- \n";
             }
         }
-        std::cout << Bench;
+        std::cout << *Bench;
     }
 };
 }  // namespace FlowSensitiveAA
