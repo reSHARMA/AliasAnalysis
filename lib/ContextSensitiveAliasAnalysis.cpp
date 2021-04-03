@@ -6,21 +6,21 @@
 #include "map"
 #include "spatial/Benchmark/PTABenchmark.h"
 #include "spatial/Graph/AliasGraph.h"
-#include "spatial/Token/Alias.h"
-#include "spatial/Token/AliasToken.h"
+#include "spatial/Token/Token.h"
+#include "spatial/Token/TokenWrapper.h"
 #include "spatial/Utils/CFGUtils.h"
 #include "spatial/Valuecontext/ValueContext.h"
 #include "stack"
 
 using namespace llvm;
-using AliasMap = spatial::AliasGraph<spatial::Alias>;
+using AliasMap = spatial::AliasGraph<spatial::Token>;
 
 namespace ContextSensitiveAA {
 
 class PointsToAnalysis {
    private:
     AliasMap GlobalAliasMap;
-    spatial::AliasTokens AT;
+    spatial::TokenWrapper TW;
     spatial::PTABenchmarkRunner *Bench;
     std::stack<std::pair<spatial::Context, llvm::Instruction*>> WorkList;
     spatial::ValueContext<AliasMap> VC;
@@ -34,17 +34,17 @@ class PointsToAnalysis {
     void handleGlobalVar(llvm::Module& M) {
         // Handle global variables
         for (auto& G : M.getGlobalList()) {
-            auto Aliases = AT.extractAliasToken(&G);
-            auto Redirections = AT.extractStatementType(&G);
-            if (Aliases.size() == 2) {
-                GlobalAliasMap.insert(Aliases[0], Aliases[1],
+            auto Tokens = TW.extractToken(&G);
+            auto Redirections = TW.extractStatementType(&G);
+            if (Tokens.size() == 2) {
+                GlobalAliasMap.insert(Tokens[0], Tokens[1],
                                       Redirections.first, Redirections.second);
                 // Handle the case when a global variable is initialized with an
                 // address
                 if (llvm::GlobalVariable* Constant =
                         llvm::dyn_cast<GlobalVariable>(G.getInitializer())) {
-                    GlobalAliasMap.insert(Aliases[0],
-                                          AT.getAliasToken(Constant), 2, 1);
+                    GlobalAliasMap.insert(Tokens[0],
+                                          TW.getToken(Constant), 2, 1);
                 }
             }
         }
@@ -92,9 +92,9 @@ class PointsToAnalysis {
         AliasMap ArgAliasMap;
         for (auto Arg = ParentFunc->arg_begin(); Arg != ParentFunc->arg_end();
              Arg++) {
-            auto Aliases = AT.extractAliasToken(Arg, ParentFunc);
-            if (Aliases.size() == 2)
-                ArgAliasMap.insert(Aliases[0], Aliases[1], 1, 0);
+            auto Tokens = TW.extractToken(Arg, ParentFunc);
+            if (Tokens.size() == 2)
+                ArgAliasMap.insert(Tokens[0], Tokens[1], 1, 0);
         }
         // Only calculate aliases for global variables and arguments at the
         // start of the function
@@ -111,14 +111,14 @@ class PointsToAnalysis {
         VC.getDataFlowOut[C][Inst] = VC.getDataFlowIn[C][Inst];
         // Find the relative redirection between lhs and rhs
         // example for a = &b:(1, 0)
-        auto Redirections = AT.extractStatementType(Inst);
+        auto Redirections = TW.extractStatementType(Inst);
         // Extract alias tokens from the instruction
-        auto Aliases = AT.extractAliasToken(Inst);
+        auto Tokens = TW.extractToken(Inst);
         // Handle killing
         if (StoreInst* SI = dyn_cast<StoreInst>(Inst)) {
-            if (Aliases.size() == 2) {
+            if (Tokens.size() == 2) {
                 auto Pointee =
-                    VC.getDataFlowOut[C][Inst].getPointee(Aliases[0]);
+                    VC.getDataFlowOut[C][Inst].getPointee(Tokens[0]);
                 if (Pointee.size() == 1) {
                     auto KillNode = *(Pointee.begin());
                     VC.getDataFlowOut[C][Inst].erase(KillNode);
@@ -128,26 +128,26 @@ class PointsToAnalysis {
         // Handle special cases:
         // Handle GEP instructions
         if (GetElementPtrInst* GEP = dyn_cast<GetElementPtrInst>(Inst)) {
-            Aliases[1] = AT.getAliasTokenWithoutIndex(Aliases[1]);
-            assert(VC.getDataFlowOut[C][Inst].getPointee(Aliases[1]).size() <
+            Tokens[1] = TW.getTokenWithoutIndex(Tokens[1]);
+            assert(VC.getDataFlowOut[C][Inst].getPointee(Tokens[1]).size() <
                        2 &&
                    "GEP impl is not sound!");
-            auto* Ptr = VC.getDataFlowOut[C][Inst].getUniquePointee(Aliases[1]);
-            Aliases[1] = AT.handleGEPUtil(GEP, Ptr);
-            if (!Aliases[1]) Aliases.clear();
+            auto* Ptr = VC.getDataFlowOut[C][Inst].getUniquePointee(Tokens[1]);
+            Tokens[1] = TW.handleGEPUtil(GEP, Ptr);
+            if (!Tokens[1]) Tokens.clear();
         }
         auto PtrIdx = spatial::getPointerOperandIndex(Inst);
         if (PtrIdx > -1 && isa<GEPOperator>(Inst->getOperand(PtrIdx))) {
-            assert(Aliases.size() > PtrIdx && "fix this in alias token");
+            assert(Tokens.size() > PtrIdx && "fix this in alias token");
             auto* Op = cast<GEPOperator>(Inst->getOperand(PtrIdx));
             if (!isa<Instruction>(Op)) {
                 auto* Ptr = VC.getDataFlowOut[C][Inst].getUniquePointee(
-                    AT.getAliasToken(Op->getPointerOperand()));
-                Ptr = AT.handleGEPUtil(Op, Ptr);
+                    TW.getToken(Op->getPointerOperand()));
+                Ptr = TW.handleGEPUtil(Op, Ptr);
                 PtrIdx = PtrIdx ? 0 : 1;
-                Aliases[PtrIdx] = Ptr;
+                Tokens[PtrIdx] = Ptr;
                 if (!PtrIdx) Redirections.first = 1;
-                if (!Aliases[PtrIdx]) Aliases.clear();
+                if (!Tokens[PtrIdx]) Tokens.clear();
             }
         }
         // handle function call
@@ -158,10 +158,10 @@ class PointsToAnalysis {
                     // handle pass by reference
                     int ArgNum = 0;
                     for (Value* Arg : CI->args()) {
-                        spatial::Alias* ActualArg =
-                            AT.getAliasToken(new spatial::Alias(Arg));
-                        spatial::Alias* FormalArg = AT.getAliasToken(
-                            new spatial::Alias(Func.getArg(ArgNum)));
+                        spatial::Token* ActualArg =
+                            TW.getToken(new spatial::Token(Arg));
+                        spatial::Token* FormalArg = TW.getToken(
+                            new spatial::Token(Func.getArg(ArgNum)));
                         VC.getDataFlowIn[C][Inst].insert(FormalArg, ActualArg,
                                                          1, 1);
                         ArgNum += 1;
@@ -182,10 +182,10 @@ class PointsToAnalysis {
                         if (!CI->doesNotReturn()) {
                             if (ReturnInst* RI =
                                     dyn_cast<ReturnInst>(&Func.back().back())) {
-                                auto CallAliases = AT.extractAliasToken(RI);
-                                if (CallAliases.size() == 1) {
+                                auto CallTokens = TW.extractToken(RI);
+                                if (CallTokens.size() == 1) {
                                     VC.getDataFlowOut[C][Inst].insert(
-                                        Aliases[0], CallAliases[0], 1, 1);
+                                        Tokens[0], CallTokens[0], 1, 1);
                                 }
                             }
                         }
@@ -204,11 +204,11 @@ class PointsToAnalysis {
                 }
             }
         }
-        if (Aliases.size() == 2) {
+        if (Tokens.size() == 2) {
             // Default behavior is copy ie (1, 1)
             // for heap address in RHS make sure it is (x, 0)
-            if (Aliases[1]->isMem()) Redirections.second = 0;
-            VC.getDataFlowOut[C][Inst].insert(Aliases[0], Aliases[1],
+            if (Tokens[1]->isMem()) Redirections.second = 0;
+            VC.getDataFlowOut[C][Inst].insert(Tokens[0], Tokens[1],
                                               Redirections.first,
                                               Redirections.second);
         }
@@ -223,9 +223,9 @@ class PointsToAnalysis {
         if (BenchVar.size() == 2) {
             Bench->evaluate(Inst,
                            VC.getDataFlowOut[C][Inst].getPointee(
-                               AT.getAliasToken(BenchVar[0])),
+                               TW.getToken(BenchVar[0])),
                            VC.getDataFlowOut[C][Inst].getPointee(
-                               AT.getAliasToken(BenchVar[1])));
+                               TW.getToken(BenchVar[1])));
         }
     }
     void printContextResults(llvm::Module& M) {
