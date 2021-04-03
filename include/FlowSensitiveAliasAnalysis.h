@@ -1,15 +1,15 @@
 #ifndef FLOWSENSITIVEALIASANALYSIS_H
 #define FLOWSENSITIVEALIASANALYSIS_H
 
-#include "llvm/Pass.h"
 #include "llvm/IR/Module.h"
+#include "llvm/Pass.h"
 
 class FlowSensitiveAliasAnalysisPass : public llvm::ModulePass {
-   public:
-    static char ID;
-    FlowSensitiveAliasAnalysisPass() : ModulePass(ID) {}
+public:
+  static char ID;
+  FlowSensitiveAliasAnalysisPass() : ModulePass(ID) {}
 
-    bool runOnModule(llvm::Module& M) override;
+  bool runOnModule(llvm::Module &M) override;
 };
 
 #endif
