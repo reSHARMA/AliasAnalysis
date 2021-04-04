@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.4)
-project(AliasAnalysis VERSION 0.0.1 LANGUAGES CXX)
+project(PointsToAnalysis VERSION 0.0.1 LANGUAGES CXX)
 
 # we need LLVM_HOME in order not automatically set LLVM_DIR
 if(NOT DEFINED ENV{LLVM_HOME})

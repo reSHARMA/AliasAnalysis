@@ -1,4 +1,4 @@
-#include "ContextSensitiveAliasAnalysis.h"
+#include "ContextSensitivePointsToAnalysis.h"
 #include "iostream"
 #include "map"
 #include "spatial/Benchmark/PTABenchmark.h"
@@ -71,10 +71,10 @@ public:
       auto Top = WorkList.top();
       std::tie(C, Inst) = Top;
       WorkList.pop();
-      PointsToGraph OldAliasInfo = VC.getDataFlowOut[C][Inst];
+      PointsToGraph OldPointsToInfo = VC.getDataFlowOut[C][Inst];
       runAnalysis(Top);
-      PointsToGraph NewAliasInfo = VC.getDataFlowOut[C][Inst];
-      if (!(OldAliasInfo == NewAliasInfo)) {
+      PointsToGraph NewPointsToInfo = VC.getDataFlowOut[C][Inst];
+      if (!(OldPointsToInfo == NewPointsToInfo)) {
         for (Instruction *I : spatial::GetSucc(Inst)) {
           WorkList.push(std::make_pair(C, I));
         }
@@ -240,7 +240,7 @@ public:
 };
 } // namespace ContextSensitiveAA
 
-bool ContextSensitiveAliasAnalysisPass::runOnModule(Module &M) {
+bool ContextSensitivePointsToAnalysisPass::runOnModule(Module &M) {
   for (Function &F : M.functions()) {
     spatial::InstNamer(F);
   }
@@ -251,8 +251,9 @@ bool ContextSensitiveAliasAnalysisPass::runOnModule(Module &M) {
   return false;
 }
 
-char ContextSensitiveAliasAnalysisPass::ID = 0;
-static RegisterPass<ContextSensitiveAliasAnalysisPass> X(
-    "aa-cs",
-    "Implementation of flow-sensitive context-sensitive alias analysis in LLVM",
-    true, true);
+char ContextSensitivePointsToAnalysisPass::ID = 0;
+static RegisterPass<ContextSensitivePointsToAnalysisPass>
+    X("aa-cs",
+      "Implementation of flow-sensitive context-sensitive points-to analysis "
+      "in LLVM",
+      true, true);

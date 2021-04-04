@@ -1,4 +1,4 @@
-#include "FlowSensitiveAliasAnalysis.h"
+#include "FlowSensitivePointsToAnalysis.h"
 #include "iostream"
 #include "map"
 #include "set"
@@ -20,7 +20,7 @@ namespace FlowSensitiveAA {
 class PointsToAnalysis {
 private:
   PointsToGraph GlobalPointsToGraph;
-  std::map<Instruction *, PointsToGraph> AliasIn, AliasOut;
+  std::map<Instruction *, PointsToGraph> PointsToIn, PointsToOut;
   spatial::TokenWrapper TW;
   spatial::PTABenchmarkRunner *Bench;
   std::stack<llvm::Instruction *> WorkList;
@@ -62,10 +62,10 @@ public:
     while (!WorkList.empty()) {
       Instruction *Inst = WorkList.top();
       WorkList.pop();
-      PointsToGraph OldAliasInfo = AliasOut[Inst];
+      PointsToGraph OldPointsToInfo = PointsToOut[Inst];
       runAnalysis(Inst);
-      PointsToGraph NewAliasInfo = AliasOut[Inst];
-      if (!(OldAliasInfo == NewAliasInfo)) {
+      PointsToGraph NewPointsToInfo = PointsToOut[Inst];
+      if (!(OldPointsToInfo == NewPointsToInfo)) {
         for (Instruction *I : spatial::GetSucc(Inst)) {
           WorkList.push(I);
         }
@@ -73,7 +73,7 @@ public:
     }
   }
   void handleReturnValue(llvm::Instruction *Inst) {
-    AliasOut[Inst] = AliasIn[Inst];
+    PointsToOut[Inst] = PointsToIn[Inst];
     auto Tokens = TW.extractToken(Inst);
     if (CallInst *CI = dyn_cast<CallInst>(Inst)) {
       Function &Func = *CI->getCalledFunction();
@@ -82,17 +82,17 @@ public:
         if (ReturnInst *RI = dyn_cast<ReturnInst>(&(Func.back().back()))) {
           auto CallTokens = TW.extractToken(RI);
           if (CallTokens.size() == 1) {
-            AliasOut[&(Func.back().back())].insert(Tokens[0], CallTokens[0], 1,
-                                                   1);
+            PointsToOut[&(Func.back().back())].insert(Tokens[0], CallTokens[0],
+                                                      1, 1);
           }
         }
       }
       // handle change made to globals
-      for (auto P : AliasOut[&Func.back().back()]) {
+      for (auto P : PointsToOut[&Func.back().back()]) {
         if (!P.first->sameFunc(&Func)) {
           for (auto X : P.second) {
             if (!X->sameFunc(&Func))
-              AliasOut[Inst].insert(P.first, X);
+              PointsToOut[Inst].insert(P.first, X);
           }
         }
       }
@@ -119,11 +119,11 @@ public:
     }
     // Calculate control flow predecessor
     for (Instruction *I : spatial::GetPred(Inst)) {
-      if (AliasOut.find(I) != AliasOut.end())
-        Predecessors.push_back(AliasOut[I]);
+      if (PointsToOut.find(I) != PointsToOut.end())
+        Predecessors.push_back(PointsToOut[I]);
     }
-    AliasIn[Inst].merge(Predecessors);
-    AliasOut[Inst] = AliasIn[Inst];
+    PointsToIn[Inst].merge(Predecessors);
+    PointsToOut[Inst] = PointsToIn[Inst];
     // Extract alias tokens from the instruction
     auto Tokens = TW.extractToken(Inst);
     // Find the relative redirection between lhs and rhs
@@ -132,10 +132,10 @@ public:
     // Handle killing
     if (StoreInst *SI = dyn_cast<StoreInst>(Inst)) {
       if (Tokens.size() == 2) {
-        auto Pointee = AliasOut[Inst].getPointee(Tokens[0]);
+        auto Pointee = PointsToOut[Inst].getPointee(Tokens[0]);
         if (Pointee.size() == 1) {
           auto KillNode = *(Pointee.begin());
-          AliasOut[Inst].erase(KillNode);
+          PointsToOut[Inst].erase(KillNode);
         }
       }
     }
@@ -143,9 +143,9 @@ public:
     // Handle GEP instructions
     if (GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(Inst)) {
       Tokens[1] = TW.getTokenWithoutIndex(Tokens[1]);
-      assert(AliasOut[Inst].getPointee(Tokens[1]).size() < 2 &&
+      assert(PointsToOut[Inst].getPointee(Tokens[1]).size() < 2 &&
              "GEP impl is not sound!");
-      auto *Ptr = AliasOut[Inst].getUniquePointee(Tokens[1]);
+      auto *Ptr = PointsToOut[Inst].getUniquePointee(Tokens[1]);
       Tokens[1] = TW.handleGEPUtil(GEP, Ptr);
       if (!Tokens[1])
         Tokens.clear();
@@ -155,7 +155,7 @@ public:
       assert(Tokens.size() > PtrIdx && "fix this in alias token");
       auto *Op = cast<GEPOperator>(Inst->getOperand(PtrIdx));
       if (!isa<Instruction>(Op)) {
-        auto *Ptr = AliasOut[Inst].getUniquePointee(
+        auto *Ptr = PointsToOut[Inst].getUniquePointee(
             TW.getToken(Op->getPointerOperand()));
         Ptr = TW.handleGEPUtil(Op, Ptr);
         PtrIdx = PtrIdx ? 0 : 1;
@@ -172,15 +172,16 @@ public:
         Function &Func = *CI->getCalledFunction();
         if (!spatial::SkipFunction(Func)) {
           // pass alias information
-          AliasIn[&(Func.front().front())].merge(
-              std::vector<PointsToGraph>{AliasIn[Inst]});
+          PointsToIn[&(Func.front().front())].merge(
+              std::vector<PointsToGraph>{PointsToIn[Inst]});
           // handle pass by reference
           int ArgNum = 0;
           for (Value *Arg : CI->args()) {
             spatial::Token *ActualArg = TW.getToken(new spatial::Token(Arg));
             spatial::Token *FormalArg =
                 TW.getToken(new spatial::Token(Func.getArg(ArgNum)));
-            AliasIn[&(Func.front().front())].insert(FormalArg, ActualArg, 1, 1);
+            PointsToIn[&(Func.front().front())].insert(FormalArg, ActualArg, 1,
+                                                       1);
             ArgNum += 1;
           }
           this->WorkList.push(&(Func.front().front()));
@@ -200,22 +201,23 @@ public:
       // for heap address in RHS make sure it is (x, 0)
       if (Tokens[1]->isMem())
         Redirections.second = 0;
-      AliasOut[Inst].insert(Tokens[0], Tokens[1], Redirections.first,
-                            Redirections.second);
+      PointsToOut[Inst].insert(Tokens[0], Tokens[1], Redirections.first,
+                               Redirections.second);
     }
     // Evaluate precision
     auto BenchVar = Bench->extract(Inst);
     if (BenchVar.size() == 2) {
-      Bench->evaluate(Inst, AliasOut[Inst].getPointee(TW.getToken(BenchVar[0])),
-                      AliasOut[Inst].getPointee(TW.getToken(BenchVar[1])));
+      Bench->evaluate(Inst,
+                      PointsToOut[Inst].getPointee(TW.getToken(BenchVar[0])),
+                      PointsToOut[Inst].getPointee(TW.getToken(BenchVar[1])));
     }
   }
   void printResults(llvm::Module &M) {
     for (Function &F : M.functions()) {
       for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I) {
-        std::cout << AliasIn[&*I];
+        std::cout << PointsToIn[&*I];
         llvm::errs() << "\n[Instruction] " << *I << "\n\n";
-        std::cout << AliasOut[&*I];
+        std::cout << PointsToOut[&*I];
         std::cout << "----------- \n";
       }
     }
@@ -224,7 +226,7 @@ public:
 };
 } // namespace FlowSensitiveAA
 
-bool FlowSensitiveAliasAnalysisPass::runOnModule(Module &M) {
+bool FlowSensitivePointsToAnalysisPass::runOnModule(Module &M) {
   for (Function &F : M.functions()) {
     spatial::InstNamer(F);
   }
@@ -234,7 +236,7 @@ bool FlowSensitiveAliasAnalysisPass::runOnModule(Module &M) {
   return false;
 }
 
-char FlowSensitiveAliasAnalysisPass::ID = 0;
-static RegisterPass<FlowSensitiveAliasAnalysisPass>
-    X("aa-fs", "Implementation of flow-sensitive alias analysis in LLVM", true,
-      true);
+char FlowSensitivePointsToAnalysisPass::ID = 0;
+static RegisterPass<FlowSensitivePointsToAnalysisPass>
+    X("aa-fs", "Implementation of flow-sensitive points-to analysis in LLVM",
+      true, true);

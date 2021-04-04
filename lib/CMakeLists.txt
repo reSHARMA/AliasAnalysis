@@ -1,9 +1,9 @@
-add_library(AliasAnalysis SHARED
-    FlowInsensitiveAliasAnalysis.cpp
-    FlowSensitiveAliasAnalysis.cpp
-    ContextSensitiveAliasAnalysis.cpp
+add_library(PointsToAnalysis SHARED
+    FlowInsensitivePointsToAnalysis.cpp
+    FlowSensitivePointsToAnalysis.cpp
+    ContextSensitivePointsToAnalysis.cpp
 )
-set_target_properties(AliasAnalysis PROPERTIES
+set_target_properties(PointsToAnalysis PROPERTIES
     COMPILE_FLAGS "-g -std=c++14 -fno-rtti"
 )
-target_link_libraries(AliasAnalysis Spatial)
+target_link_libraries(PointsToAnalysis Spatial)

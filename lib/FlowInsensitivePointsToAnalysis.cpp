@@ -1,4 +1,4 @@
-#include "FlowInsensitiveAliasAnalysis.h"
+#include "FlowInsensitivePointsToAnalysis.h"
 #include "iostream"
 #include "spatial/Benchmark/PTABenchmark.h"
 #include "spatial/Graph/Graph.h"
@@ -11,7 +11,7 @@
 #include "llvm/IR/Operator.h"
 
 using namespace llvm;
-bool FlowInsensitiveAliasAnalysisPass::runOnModule(Module &M) {
+bool FlowInsensitivePointsToAnalysisPass::runOnModule(Module &M) {
   spatial::TokenWrapper TW;
   spatial::Graph<spatial::Token> AG;
   spatial::PTABenchmarkRunner *Bench = new spatial::PTABenchmarkRunner();
@@ -83,6 +83,7 @@ bool FlowInsensitiveAliasAnalysisPass::runOnModule(Module &M) {
   return false;
 }
 
-char FlowInsensitiveAliasAnalysisPass::ID = 0;
-static RegisterPass<FlowInsensitiveAliasAnalysisPass>
-    X("aa-basic", "Basic implementation of alias analysis in LLVM", true, true);
+char FlowInsensitivePointsToAnalysisPass::ID = 0;
+static RegisterPass<FlowInsensitivePointsToAnalysisPass>
+    X("aa-basic", "Basic implementation of points-to analysis in LLVM", true,
+      true);
