@@ -1,7 +1,7 @@
 #include "FlowInsensitiveAliasAnalysis.h"
 #include "iostream"
 #include "spatial/Benchmark/PTABenchmark.h"
-#include "spatial/Graph/AliasGraph.h"
+#include "spatial/Graph/Graph.h"
 #include "spatial/Token/Token.h"
 #include "spatial/Token/TokenWrapper.h"
 #include "spatial/Utils/CFGUtils.h"
@@ -13,7 +13,7 @@
 using namespace llvm;
 bool FlowInsensitiveAliasAnalysisPass::runOnModule(Module &M) {
   spatial::TokenWrapper TW;
-  spatial::AliasGraph<spatial::Token> AG;
+  spatial::Graph<spatial::Token> AG;
   spatial::PTABenchmarkRunner *Bench = new spatial::PTABenchmarkRunner();
   // Handle global variables
   for (auto &G : M.getGlobalList()) {

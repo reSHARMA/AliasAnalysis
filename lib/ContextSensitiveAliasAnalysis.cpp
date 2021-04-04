@@ -2,7 +2,7 @@
 #include "iostream"
 #include "map"
 #include "spatial/Benchmark/PTABenchmark.h"
-#include "spatial/Graph/AliasGraph.h"
+#include "spatial/Graph/Graph.h"
 #include "spatial/Token/Token.h"
 #include "spatial/Token/TokenWrapper.h"
 #include "spatial/Utils/CFGUtils.h"
@@ -13,20 +13,21 @@
 #include "llvm/IR/Module.h"
 
 using namespace llvm;
-using AliasMap = spatial::AliasGraph<spatial::Token>;
+using PointsToGraph = spatial::Graph<spatial::Token>;
 
 namespace ContextSensitiveAA {
 
 class PointsToAnalysis {
 private:
-  AliasMap GlobalAliasMap;
+  PointsToGraph GlobalPointsToGraph;
   spatial::TokenWrapper TW;
   spatial::PTABenchmarkRunner *Bench;
   std::stack<std::pair<spatial::Context, llvm::Instruction *>> WorkList;
-  spatial::ValueContext<AliasMap> VC;
+  spatial::ValueContext<PointsToGraph> VC;
 
 public:
-  PointsToAnalysis(Module &M, AliasMap BI, AliasMap Top) : VC(BI, Top) {
+  PointsToAnalysis(Module &M, PointsToGraph BI, PointsToGraph Top)
+      : VC(BI, Top) {
     initializeWorkList(M, BI);
     handleGlobalVar(M);
     Bench = new spatial::PTABenchmarkRunner();
@@ -37,23 +38,23 @@ public:
       auto Tokens = TW.extractToken(&G);
       auto Redirections = TW.extractStatementType(&G);
       if (Tokens.size() == 2) {
-        GlobalAliasMap.insert(Tokens[0], Tokens[1], Redirections.first,
-                              Redirections.second);
+        GlobalPointsToGraph.insert(Tokens[0], Tokens[1], Redirections.first,
+                                   Redirections.second);
         // Handle the case when a global variable is initialized with an
         // address
         if (llvm::GlobalVariable *Constant =
                 llvm::dyn_cast<GlobalVariable>(G.getInitializer())) {
-          GlobalAliasMap.insert(Tokens[0], TW.getToken(Constant), 2, 1);
+          GlobalPointsToGraph.insert(Tokens[0], TW.getToken(Constant), 2, 1);
         }
       }
     }
   }
-  void initializeWorkList(llvm::Module &M, AliasMap BI) {
+  void initializeWorkList(llvm::Module &M, PointsToGraph BI) {
     for (Function &F : M.functions()) {
       initializeFunction(F, BI);
     }
   }
-  int initializeFunction(llvm::Function &F, AliasMap InitialValue) {
+  int initializeFunction(llvm::Function &F, PointsToGraph InitialValue) {
     spatial::Context C = VC.initializeContext(&F, InitialValue);
     for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I) {
       if (I == inst_begin(F)) {
@@ -70,9 +71,9 @@ public:
       auto Top = WorkList.top();
       std::tie(C, Inst) = Top;
       WorkList.pop();
-      AliasMap OldAliasInfo = VC.getDataFlowOut[C][Inst];
+      PointsToGraph OldAliasInfo = VC.getDataFlowOut[C][Inst];
       runAnalysis(Top);
-      AliasMap NewAliasInfo = VC.getDataFlowOut[C][Inst];
+      PointsToGraph NewAliasInfo = VC.getDataFlowOut[C][Inst];
       if (!(OldAliasInfo == NewAliasInfo)) {
         for (Instruction *I : spatial::GetSucc(Inst)) {
           WorkList.push(std::make_pair(C, I));
@@ -86,20 +87,20 @@ public:
     std::tie(C, Inst) = InstInfo;
     llvm::BasicBlock *ParentBB = Inst->getParent();
     llvm::Function *ParentFunc = ParentBB->getParent();
-    std::vector<AliasMap> Predecessors;
+    std::vector<PointsToGraph> Predecessors;
     // Handle function arguments
-    AliasMap ArgAliasMap;
+    PointsToGraph ArgPointsToGraph;
     for (auto Arg = ParentFunc->arg_begin(); Arg != ParentFunc->arg_end();
          Arg++) {
       auto Tokens = TW.extractToken(Arg, ParentFunc);
       if (Tokens.size() == 2)
-        ArgAliasMap.insert(Tokens[0], Tokens[1], 1, 0);
+        ArgPointsToGraph.insert(Tokens[0], Tokens[1], 1, 0);
     }
     // Only calculate aliases for global variables and arguments at the
     // start of the function
     if (&ParentBB->front() == Inst) {
-      Predecessors.push_back(GlobalAliasMap);
-      Predecessors.push_back(ArgAliasMap);
+      Predecessors.push_back(GlobalPointsToGraph);
+      Predecessors.push_back(ArgPointsToGraph);
     }
     // Calculate control flow predecessor
     for (Instruction *I : spatial::GetPred(Inst)) {
@@ -243,7 +244,7 @@ bool ContextSensitiveAliasAnalysisPass::runOnModule(Module &M) {
   for (Function &F : M.functions()) {
     spatial::InstNamer(F);
   }
-  AliasMap BI, Top;
+  PointsToGraph BI, Top;
   ContextSensitiveAA::PointsToAnalysis PA(M, BI, Top);
   PA.runOnWorklist();
   PA.printContextResults(M);

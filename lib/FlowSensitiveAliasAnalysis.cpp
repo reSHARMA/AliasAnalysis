@@ -3,7 +3,7 @@
 #include "map"
 #include "set"
 #include "spatial/Benchmark/PTABenchmark.h"
-#include "spatial/Graph/AliasGraph.h"
+#include "spatial/Graph/Graph.h"
 #include "spatial/Token/Token.h"
 #include "spatial/Token/TokenWrapper.h"
 #include "spatial/Utils/CFGUtils.h"
@@ -13,14 +13,14 @@
 #include "llvm/IR/Module.h"
 
 using namespace llvm;
-using AliasMap = spatial::AliasGraph<spatial::Token>;
+using PointsToGraph = spatial::Graph<spatial::Token>;
 
 namespace FlowSensitiveAA {
 
 class PointsToAnalysis {
 private:
-  AliasMap GlobalAliasMap;
-  std::map<Instruction *, AliasMap> AliasIn, AliasOut;
+  PointsToGraph GlobalPointsToGraph;
+  std::map<Instruction *, PointsToGraph> AliasIn, AliasOut;
   spatial::TokenWrapper TW;
   spatial::PTABenchmarkRunner *Bench;
   std::stack<llvm::Instruction *> WorkList;
@@ -38,13 +38,13 @@ public:
       auto Tokens = TW.extractToken(&G);
       auto Redirections = TW.extractStatementType(&G);
       if (Tokens.size() == 2) {
-        GlobalAliasMap.insert(Tokens[0], Tokens[1], Redirections.first,
-                              Redirections.second);
+        GlobalPointsToGraph.insert(Tokens[0], Tokens[1], Redirections.first,
+                                   Redirections.second);
         // Handle the case when a global variable is initialized with an
         // address
         if (llvm::GlobalVariable *Constant =
                 llvm::dyn_cast<GlobalVariable>(G.getInitializer())) {
-          GlobalAliasMap.insert(Tokens[0], TW.getToken(Constant), 2, 1);
+          GlobalPointsToGraph.insert(Tokens[0], TW.getToken(Constant), 2, 1);
         }
       }
     }
@@ -62,9 +62,9 @@ public:
     while (!WorkList.empty()) {
       Instruction *Inst = WorkList.top();
       WorkList.pop();
-      AliasMap OldAliasInfo = AliasOut[Inst];
+      PointsToGraph OldAliasInfo = AliasOut[Inst];
       runAnalysis(Inst);
-      AliasMap NewAliasInfo = AliasOut[Inst];
+      PointsToGraph NewAliasInfo = AliasOut[Inst];
       if (!(OldAliasInfo == NewAliasInfo)) {
         for (Instruction *I : spatial::GetSucc(Inst)) {
           WorkList.push(I);
@@ -101,21 +101,21 @@ public:
   void runAnalysis(llvm::Instruction *Inst) {
     llvm::BasicBlock *ParentBB = Inst->getParent();
     llvm::Function *ParentFunc = ParentBB->getParent();
-    std::vector<AliasMap> Predecessors;
+    std::vector<PointsToGraph> Predecessors;
     // Handle function arguments
-    AliasMap ArgAliasMap;
+    PointsToGraph ArgPointsToGraph;
     for (auto Arg = ParentFunc->arg_begin(); Arg != ParentFunc->arg_end();
          Arg++) {
       auto Tokens = TW.extractToken(Arg, ParentFunc);
       if (Tokens.size() == 2)
-        ArgAliasMap.insert(Tokens[0], Tokens[1], 1, 0);
+        ArgPointsToGraph.insert(Tokens[0], Tokens[1], 1, 0);
     }
     // Only calculate aliases for global variables and arguments at
     // the
     // start of the function
     if (&ParentBB->front() == Inst) {
-      Predecessors.push_back(GlobalAliasMap);
-      Predecessors.push_back(ArgAliasMap);
+      Predecessors.push_back(GlobalPointsToGraph);
+      Predecessors.push_back(ArgPointsToGraph);
     }
     // Calculate control flow predecessor
     for (Instruction *I : spatial::GetPred(Inst)) {
@@ -173,7 +173,7 @@ public:
         if (!spatial::SkipFunction(Func)) {
           // pass alias information
           AliasIn[&(Func.front().front())].merge(
-              std::vector<AliasMap>{AliasIn[Inst]});
+              std::vector<PointsToGraph>{AliasIn[Inst]});
           // handle pass by reference
           int ArgNum = 0;
           for (Value *Arg : CI->args()) {
