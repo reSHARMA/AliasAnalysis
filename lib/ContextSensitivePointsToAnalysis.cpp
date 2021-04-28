@@ -3,6 +3,7 @@
 #include "map"
 #include "spatial/Benchmark/PTABenchmark.h"
 #include "spatial/Graph/Graph.h"
+#include "spatial/InstModel/GenericInstModel/GenericInstModel.h"
 #include "spatial/Token/Token.h"
 #include "spatial/Token/TokenWrapper.h"
 #include "spatial/Utils/CFGUtils.h"
@@ -21,6 +22,7 @@ class PointsToAnalysis {
 private:
   PointsToGraph GlobalPointsToGraph;
   spatial::TokenWrapper TW;
+  spatial::GenericInstModel *IM;
   spatial::PTABenchmarkRunner *Bench;
   std::stack<std::pair<spatial::Context, llvm::Instruction *>> WorkList;
   spatial::ValueContext<PointsToGraph> VC;
@@ -28,18 +30,19 @@ private:
 public:
   PointsToAnalysis(Module &M, PointsToGraph BI, PointsToGraph Top)
       : VC(BI, Top) {
+    IM = new spatial::GenericInstModel(&TW);
+    Bench = new spatial::PTABenchmarkRunner();
     initializeWorkList(M, BI);
     handleGlobalVar(M);
-    Bench = new spatial::PTABenchmarkRunner();
   }
   void handleGlobalVar(llvm::Module &M) {
     // Handle global variables
     for (auto &G : M.getGlobalList()) {
-      auto Tokens = TW.extractToken(&G);
-      auto Redirections = TW.extractStatementType(&G);
+      auto Tokens = IM->extractToken(&G);
+      auto Redirections = IM->extractRedirections(&G);
       if (Tokens.size() == 2) {
-        GlobalPointsToGraph.insert(Tokens[0], Tokens[1], Redirections.first,
-                                   Redirections.second);
+        GlobalPointsToGraph.insert(Tokens[0], Tokens[1], Redirections[0],
+                                   Redirections[1]);
         // Handle the case when a global variable is initialized with an
         // address
         if (llvm::GlobalVariable *Constant =
@@ -92,7 +95,7 @@ public:
     PointsToGraph ArgPointsToGraph;
     for (auto Arg = ParentFunc->arg_begin(); Arg != ParentFunc->arg_end();
          Arg++) {
-      auto Tokens = TW.extractToken(Arg, ParentFunc);
+      auto Tokens = IM->extractToken(Arg, ParentFunc);
       if (Tokens.size() == 2)
         ArgPointsToGraph.insert(Tokens[0], Tokens[1], 1, 0);
     }
@@ -111,9 +114,9 @@ public:
     VC.getDataFlowOut[C][Inst] = VC.getDataFlowIn[C][Inst];
     // Find the relative redirection between lhs and rhs
     // example for a = &b:(1, 0)
-    auto Redirections = TW.extractStatementType(Inst);
+    auto Redirections = IM->extractRedirections(Inst);
     // Extract alias tokens from the instruction
-    auto Tokens = TW.extractToken(Inst);
+    auto Tokens = IM->extractToken(Inst);
     // Handle killing
     if (StoreInst *SI = dyn_cast<StoreInst>(Inst)) {
       if (Tokens.size() == 2) {
@@ -131,7 +134,7 @@ public:
       assert(VC.getDataFlowOut[C][Inst].getPointee(Tokens[1]).size() < 2 &&
              "GEP impl is not sound!");
       auto *Ptr = VC.getDataFlowOut[C][Inst].getUniquePointee(Tokens[1]);
-      Tokens[1] = TW.handleGEPUtil(GEP, Ptr);
+      Tokens[1] = IM->handleGEPUtil(GEP, Ptr);
       if (!Tokens[1])
         Tokens.clear();
     }
@@ -142,11 +145,11 @@ public:
       if (!isa<Instruction>(Op)) {
         auto *Ptr = VC.getDataFlowOut[C][Inst].getUniquePointee(
             TW.getToken(Op->getPointerOperand()));
-        Ptr = TW.handleGEPUtil(Op, Ptr);
+        Ptr = IM->handleGEPUtil(Op, Ptr);
         PtrIdx = PtrIdx ? 0 : 1;
         Tokens[PtrIdx] = Ptr;
         if (!PtrIdx)
-          Redirections.first = 1;
+          Redirections[0] = 1;
         if (!Tokens[PtrIdx])
           Tokens.clear();
       }
@@ -179,7 +182,7 @@ public:
           if (llvm::CallInst *CI = llvm::dyn_cast<CallInst>(Inst)) {
             if (!CI->doesNotReturn()) {
               if (ReturnInst *RI = dyn_cast<ReturnInst>(&Func.back().back())) {
-                auto CallTokens = TW.extractToken(RI);
+                auto CallTokens = IM->extractToken(RI);
                 if (CallTokens.size() == 1) {
                   VC.getDataFlowOut[C][Inst].insert(Tokens[0], CallTokens[0], 1,
                                                     1);
@@ -204,9 +207,9 @@ public:
       // Default behavior is copy ie (1, 1)
       // for heap address in RHS make sure it is (x, 0)
       if (Tokens[1]->isMem())
-        Redirections.second = 0;
-      VC.getDataFlowOut[C][Inst].insert(
-          Tokens[0], Tokens[1], Redirections.first, Redirections.second);
+        Redirections[1] = 0;
+      VC.getDataFlowOut[C][Inst].insert(Tokens[0], Tokens[1], Redirections[0],
+                                        Redirections[1]);
     }
     if (&ParentBB->back() == Inst) {
       VC.setResult(C, VC.getDataFlowOut[C][Inst]);

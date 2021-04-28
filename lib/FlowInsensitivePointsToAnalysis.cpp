@@ -2,6 +2,7 @@
 #include "iostream"
 #include "spatial/Benchmark/PTABenchmark.h"
 #include "spatial/Graph/Graph.h"
+#include "spatial/InstModel/GenericInstModel/GenericInstModel.h"
 #include "spatial/Token/Token.h"
 #include "spatial/Token/TokenWrapper.h"
 #include "spatial/Utils/CFGUtils.h"
@@ -13,14 +14,15 @@
 using namespace llvm;
 bool FlowInsensitivePointsToAnalysisPass::runOnModule(Module &M) {
   spatial::TokenWrapper TW;
+  spatial::GenericInstModel IM(&TW);
   spatial::Graph<spatial::Token> AG;
   spatial::PTABenchmarkRunner *Bench = new spatial::PTABenchmarkRunner();
   // Handle global variables
   for (auto &G : M.getGlobalList()) {
-    auto Tokens = TW.extractToken(&G);
-    auto Redirections = TW.extractStatementType(&G);
+    auto Tokens = IM.extractToken(&G);
+    auto Redirections = IM.extractRedirections(&G);
     if (Tokens.size() == 2) {
-      AG.insert(Tokens[0], Tokens[1], Redirections.first, Redirections.second);
+      AG.insert(Tokens[0], Tokens[1], Redirections[0], Redirections[1]);
       // Handle the case when a global variable is initialized with an
       // address
       if (llvm::GlobalVariable *Constant =
@@ -33,17 +35,17 @@ bool FlowInsensitivePointsToAnalysisPass::runOnModule(Module &M) {
     spatial::InstNamer(F);
     for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I) {
       // Extract alias tokens from the instruction
-      auto Tokens = TW.extractToken(&*I);
+      auto Tokens = IM.extractToken(&*I);
       // Find the relative redirection between lhs and rhs
       // example for a = &b:(1, 0)
-      auto Redirections = TW.extractStatementType(&*I);
+      auto Redirections = IM.extractRedirections(&*I);
       // Handle special cases:
       // Handle GEP instructions
       if (GetElementPtrInst *Inst = dyn_cast<GetElementPtrInst>(&*I)) {
         Tokens[1] = TW.getTokenWithoutIndex(Tokens[1]);
         assert(AG.getPointee(Tokens[1]).size() < 2 && "GEP impl is not sound!");
         auto *Ptr = AG.getUniquePointee(Tokens[1]);
-        Tokens[1] = TW.handleGEPUtil(Inst, Ptr);
+        Tokens[1] = IM.handleGEPUtil(Inst, Ptr);
         if (!Tokens[1])
           Tokens.clear();
       }
@@ -53,11 +55,11 @@ bool FlowInsensitivePointsToAnalysisPass::runOnModule(Module &M) {
         auto *Op = cast<GEPOperator>((*I).getOperand(PtrIdx));
         if (!isa<Instruction>(Op)) {
           auto *Ptr = AG.getUniquePointee(TW.getToken(Op->getPointerOperand()));
-          Ptr = TW.handleGEPUtil(Op, Ptr);
+          Ptr = IM.handleGEPUtil(Op, Ptr);
           PtrIdx = PtrIdx ? 0 : 1;
           Tokens[PtrIdx] = Ptr;
           if (!PtrIdx)
-            Redirections.first = 1;
+            Redirections[0] = 1;
           if (!Tokens[PtrIdx])
             Tokens.clear();
         }
@@ -66,9 +68,8 @@ bool FlowInsensitivePointsToAnalysisPass::runOnModule(Module &M) {
         // Default behavior is copy ie (1, 1)
         // for heap address in RHS make sure it is (x, 0)
         if (Tokens[1]->isMem())
-          Redirections.second = 0;
-        AG.insert(Tokens[0], Tokens[1], Redirections.first,
-                  Redirections.second);
+          Redirections[1] = 0;
+        AG.insert(Tokens[0], Tokens[1], Redirections[0], Redirections[1]);
       }
       // Evaluate precision
       auto BenchVar = Bench->extract(&*I);

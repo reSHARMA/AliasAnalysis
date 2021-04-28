@@ -4,6 +4,7 @@
 #include "set"
 #include "spatial/Benchmark/PTABenchmark.h"
 #include "spatial/Graph/Graph.h"
+#include "spatial/InstModel/GenericInstModel/GenericInstModel.h"
 #include "spatial/Token/Token.h"
 #include "spatial/Token/TokenWrapper.h"
 #include "spatial/Utils/CFGUtils.h"
@@ -21,30 +22,33 @@ class PointsToAnalysis {
 private:
   PointsToGraph GlobalPointsToGraph;
   std::map<Instruction *, PointsToGraph> PointsToIn, PointsToOut;
-  spatial::TokenWrapper TW;
+  spatial::TokenWrapper *TW;
+  spatial::GenericInstModel *IM;
   spatial::PTABenchmarkRunner *Bench;
   std::stack<llvm::Instruction *> WorkList;
   std::map<llvm::Function *, std::set<llvm::Instruction *>> CallGraph;
 
 public:
   PointsToAnalysis(Module &M) {
+    TW = new spatial::TokenWrapper();
+    IM = new spatial::GenericInstModel(TW);
+    Bench = new spatial::PTABenchmarkRunner();
     initializeWorkList(M);
     handleGlobalVar(M);
-    Bench = new spatial::PTABenchmarkRunner();
   }
   void handleGlobalVar(llvm::Module &M) {
     // Handle global variables
     for (auto &G : M.getGlobalList()) {
-      auto Tokens = TW.extractToken(&G);
-      auto Redirections = TW.extractStatementType(&G);
+      auto Tokens = IM->extractToken(&G);
+      auto Redirections = IM->extractRedirections(&G);
       if (Tokens.size() == 2) {
-        GlobalPointsToGraph.insert(Tokens[0], Tokens[1], Redirections.first,
-                                   Redirections.second);
+        GlobalPointsToGraph.insert(Tokens[0], Tokens[1], Redirections[0],
+                                   Redirections[1]);
         // Handle the case when a global variable is initialized with an
         // address
         if (llvm::GlobalVariable *Constant =
                 llvm::dyn_cast<GlobalVariable>(G.getInitializer())) {
-          GlobalPointsToGraph.insert(Tokens[0], TW.getToken(Constant), 2, 1);
+          GlobalPointsToGraph.insert(Tokens[0], TW->getToken(Constant), 2, 1);
         }
       }
     }
@@ -74,13 +78,13 @@ public:
   }
   void handleReturnValue(llvm::Instruction *Inst) {
     PointsToOut[Inst] = PointsToIn[Inst];
-    auto Tokens = TW.extractToken(Inst);
+    auto Tokens = IM->extractToken(Inst);
     if (CallInst *CI = dyn_cast<CallInst>(Inst)) {
       Function &Func = *CI->getCalledFunction();
       // handle return value
       if (!CI->doesNotReturn()) {
         if (ReturnInst *RI = dyn_cast<ReturnInst>(&(Func.back().back()))) {
-          auto CallTokens = TW.extractToken(RI);
+          auto CallTokens = IM->extractToken(RI);
           if (CallTokens.size() == 1) {
             PointsToOut[&(Func.back().back())].insert(Tokens[0], CallTokens[0],
                                                       1, 1);
@@ -106,7 +110,7 @@ public:
     PointsToGraph ArgPointsToGraph;
     for (auto Arg = ParentFunc->arg_begin(); Arg != ParentFunc->arg_end();
          Arg++) {
-      auto Tokens = TW.extractToken(Arg, ParentFunc);
+      auto Tokens = IM->extractToken(Arg, ParentFunc);
       if (Tokens.size() == 2)
         ArgPointsToGraph.insert(Tokens[0], Tokens[1], 1, 0);
     }
@@ -125,10 +129,10 @@ public:
     PointsToIn[Inst].merge(Predecessors);
     PointsToOut[Inst] = PointsToIn[Inst];
     // Extract alias tokens from the instruction
-    auto Tokens = TW.extractToken(Inst);
+    auto Tokens = IM->extractToken(Inst);
     // Find the relative redirection between lhs and rhs
     // example for a = &b:(1, 0)
-    auto Redirections = TW.extractStatementType(Inst);
+    auto Redirections = IM->extractRedirections(Inst);
     // Handle killing
     if (StoreInst *SI = dyn_cast<StoreInst>(Inst)) {
       if (Tokens.size() == 2) {
@@ -142,11 +146,11 @@ public:
     // Handle special cases:
     // Handle GEP instructions
     if (GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(Inst)) {
-      Tokens[1] = TW.getTokenWithoutIndex(Tokens[1]);
+      Tokens[1] = TW->getTokenWithoutIndex(Tokens[1]);
       assert(PointsToOut[Inst].getPointee(Tokens[1]).size() < 2 &&
              "GEP impl is not sound!");
       auto *Ptr = PointsToOut[Inst].getUniquePointee(Tokens[1]);
-      Tokens[1] = TW.handleGEPUtil(GEP, Ptr);
+      Tokens[1] = IM->handleGEPUtil(GEP, Ptr);
       if (!Tokens[1])
         Tokens.clear();
     }
@@ -156,12 +160,12 @@ public:
       auto *Op = cast<GEPOperator>(Inst->getOperand(PtrIdx));
       if (!isa<Instruction>(Op)) {
         auto *Ptr = PointsToOut[Inst].getUniquePointee(
-            TW.getToken(Op->getPointerOperand()));
-        Ptr = TW.handleGEPUtil(Op, Ptr);
+            TW->getToken(Op->getPointerOperand()));
+        Ptr = IM->handleGEPUtil(Op, Ptr);
         PtrIdx = PtrIdx ? 0 : 1;
         Tokens[PtrIdx] = Ptr;
         if (!PtrIdx)
-          Redirections.first = 1;
+          Redirections[0] = 1;
         if (!Tokens[PtrIdx])
           Tokens.clear();
       }
@@ -177,9 +181,9 @@ public:
           // handle pass by reference
           int ArgNum = 0;
           for (Value *Arg : CI->args()) {
-            spatial::Token *ActualArg = TW.getToken(new spatial::Token(Arg));
+            spatial::Token *ActualArg = TW->getToken(new spatial::Token(Arg));
             spatial::Token *FormalArg =
-                TW.getToken(new spatial::Token(Func.getArg(ArgNum)));
+                TW->getToken(new spatial::Token(Func.getArg(ArgNum)));
             PointsToIn[&(Func.front().front())].insert(FormalArg, ActualArg, 1,
                                                        1);
             ArgNum += 1;
@@ -200,25 +204,25 @@ public:
       // Default behavior is copy ie (1, 1)
       // for heap address in RHS make sure it is (x, 0)
       if (Tokens[1]->isMem())
-        Redirections.second = 0;
-      PointsToOut[Inst].insert(Tokens[0], Tokens[1], Redirections.first,
-                               Redirections.second);
+        Redirections[1] = 0;
+      PointsToOut[Inst].insert(Tokens[0], Tokens[1], Redirections[0],
+                               Redirections[1]);
     }
     // Evaluate precision
     auto BenchVar = Bench->extract(Inst);
     if (BenchVar.size() == 2) {
       Bench->evaluate(Inst,
-                      PointsToOut[Inst].getPointee(TW.getToken(BenchVar[0])),
-                      PointsToOut[Inst].getPointee(TW.getToken(BenchVar[1])));
+                      PointsToOut[Inst].getPointee(TW->getToken(BenchVar[0])),
+                      PointsToOut[Inst].getPointee(TW->getToken(BenchVar[1])));
     }
   }
   void printResults(llvm::Module &M) {
     for (Function &F : M.functions()) {
       for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I) {
-        std::cout << PointsToIn[&*I];
+        std::cout << PointsToIn[&*I] << std::endl;
         llvm::errs() << "\n[Instruction] " << *I << "\n\n";
-        std::cout << PointsToOut[&*I];
-        std::cout << "----------- \n";
+        std::cout << PointsToOut[&*I] << std::endl;
+        std::cout << "----------- " << std::endl;
       }
     }
     std::cout << *Bench;
